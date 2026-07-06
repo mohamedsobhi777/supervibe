@@ -49,6 +49,7 @@
         "@sentry/react": "^10.30.0",
         "@simplewebauthn/browser": "^13.2.2",
         "@space-do/space": "workspace:*",
+        "@superserve/sdk": "0.7.7",
         "@types/argon2-browser": "^1.18.4",
         "@types/mdast": "^4.0.4",
         "@vitejs/plugin-react": "^5.1.2",
@@ -911,6 +912,8 @@
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@standard-schema/utils": ["@standard-schema/utils@0.3.0", "", {}, "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g=="],
+
+    "@superserve/sdk": ["@superserve/sdk@0.7.7", "", {}, "sha512-NkUXH9JItjwYi3B0uSVi3mXDe0qDIICdU7Z82vdvK2lbH+VD9xcnUI/a7fGDUzuCEgdDZXJKxl94Jt2lnbAs0g=="],
 
     "@svgr/babel-plugin-add-jsx-attribute": ["@svgr/babel-plugin-add-jsx-attribute@8.0.0", "", { "peerDependencies": { "@babel/core": "^7.0.0-0" } }, "sha512-b9MIk7yhdS1pMCZM8VeNfUlSKVRhsHZNMl5O9SfaX0l0t5wjdgu4IDzGB8bpnGBBOjGST3rRFVsaaEtI4W6f7g=="],
 
