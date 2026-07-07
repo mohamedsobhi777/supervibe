@@ -21,6 +21,10 @@ describe('parseBootstrapEnv', () => {
 
 		expect(() => {
 			parseBootstrapEnv({});
+		}).toThrow(/SUPABASE_ANON_KEY/);
+
+		expect(() => {
+			parseBootstrapEnv({});
 		}).toThrow(/SUPABASE_SESSION_JWT/);
 
 		expect(() => {
@@ -34,6 +38,7 @@ describe('parseBootstrapEnv', () => {
 				SESSION_ID: 's-123',
 				AGENT_ID: 'a-123',
 				SUPABASE_URL: 'https://supabase.example.com',
+				SUPABASE_ANON_KEY: 'anon-key-here',
 			});
 		}).toThrow(/SUPABASE_SESSION_JWT/);
 
@@ -42,6 +47,7 @@ describe('parseBootstrapEnv', () => {
 				SESSION_ID: 's-123',
 				AGENT_ID: 'a-123',
 				SUPABASE_URL: 'https://supabase.example.com',
+				SUPABASE_ANON_KEY: 'anon-key-here',
 			});
 		}).toThrow(/TEMPLATES_BASE_URL/);
 	});
@@ -51,6 +57,7 @@ describe('parseBootstrapEnv', () => {
 			SESSION_ID: 's-123',
 			AGENT_ID: 'a-456',
 			SUPABASE_URL: 'https://supabase.example.com',
+			SUPABASE_ANON_KEY: 'anon-key-here',
 			SUPABASE_SESSION_JWT: 'jwt-token-here',
 			TEMPLATES_BASE_URL: 'https://templates.example.com',
 		});
@@ -59,6 +66,7 @@ describe('parseBootstrapEnv', () => {
 			sessionId: 's-123',
 			agentId: 'a-456',
 			supabaseUrl: 'https://supabase.example.com',
+			supabaseAnonKey: 'anon-key-here',
 			supabaseSessionJwt: 'jwt-token-here',
 			templatesBaseUrl: 'https://templates.example.com',
 			workspaceDir: '/workspace',
@@ -73,6 +81,7 @@ describe('parseBootstrapEnv', () => {
 			SESSION_ID: 's-123',
 			AGENT_ID: 'a-456',
 			SUPABASE_URL: 'https://supabase.example.com',
+			SUPABASE_ANON_KEY: 'anon-key-here',
 			SUPABASE_SESSION_JWT: 'jwt-token-here',
 			TEMPLATES_BASE_URL: 'https://templates.example.com',
 			WORKSPACE_DIR: '/custom/workspace',
@@ -86,6 +95,7 @@ describe('parseBootstrapEnv', () => {
 			SESSION_ID: 's-123',
 			AGENT_ID: 'a-456',
 			SUPABASE_URL: 'https://supabase.example.com',
+			SUPABASE_ANON_KEY: 'anon-key-here',
 			SUPABASE_SESSION_JWT: 'jwt-token-here',
 			TEMPLATES_BASE_URL: 'https://templates.example.com',
 			SELF_PREVIEW_BASE_URL: 'https://preview.example.com',
@@ -103,6 +113,7 @@ describe('parseBootstrapEnv', () => {
 			SESSION_ID: 's-123',
 			AGENT_ID: 'a-456',
 			SUPABASE_URL: 'https://supabase.example.com',
+			SUPABASE_ANON_KEY: 'anon-key-here',
 			SUPABASE_SESSION_JWT: 'jwt-token-here',
 			TEMPLATES_BASE_URL: 'https://templates.example.com',
 		});

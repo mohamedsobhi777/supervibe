@@ -15,6 +15,7 @@
 		"dev:browser": "tsx scripts/dev-browser-sidecar.ts",
 		"build": "bun run --cwd space build && vite build",
 		"typecheck": "tsc -b --incremental --noEmit",
+		"typecheck:agent-runtime": "! tsc -p agent-runtime --noEmit --pretty false 2>&1 | grep -E '^agent-runtime/'",
 		"lint": "eslint .",
 		"preview": "npm run build && vite preview",
 		"deploy": "bun --env-file .prod.vars scripts/deploy.ts",

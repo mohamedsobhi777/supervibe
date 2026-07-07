@@ -7,6 +7,7 @@ export interface BootstrapEnv {
 	sessionId: string;
 	agentId: string;
 	supabaseUrl: string;
+	supabaseAnonKey: string;
 	supabaseSessionJwt: string;
 	templatesBaseUrl: string;
 	workspaceDir: string;
@@ -28,6 +29,7 @@ export function parseBootstrapEnv(source: Record<string, string | undefined>): B
 		'SESSION_ID',
 		'AGENT_ID',
 		'SUPABASE_URL',
+		'SUPABASE_ANON_KEY',
 		'SUPABASE_SESSION_JWT',
 		'TEMPLATES_BASE_URL',
 	] as const;
@@ -47,6 +49,7 @@ export function parseBootstrapEnv(source: Record<string, string | undefined>): B
 		sessionId: source.SESSION_ID!,
 		agentId: source.AGENT_ID!,
 		supabaseUrl: source.SUPABASE_URL!,
+		supabaseAnonKey: source.SUPABASE_ANON_KEY!,
 		supabaseSessionJwt: source.SUPABASE_SESSION_JWT!,
 		templatesBaseUrl: source.TEMPLATES_BASE_URL!,
 		workspaceDir: source.WORKSPACE_DIR || '/workspace',
