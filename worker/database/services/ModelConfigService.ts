@@ -7,12 +7,13 @@ import { BaseService } from './BaseService';
 import { UserModelConfig, NewUserModelConfig, userModelConfigs } from '../schema';
 import { eq, and } from 'drizzle-orm';
 import { AgentActionKey, ModelConfig } from '../../agents/inferutils/config.types';
-import { AGENT_CONFIG, AGENT_CONSTRAINTS } from '../../agents/inferutils/config';
+import { AGENT_CONFIG } from '../../agents/inferutils/config';
 import type { ReasoningEffort } from '../../agents/inferutils/config.types';
 import { generateId } from '../../utils/idGenerator';
 import type { UserModelConfigWithMetadata } from '../types';
 import { validateAgentConstraints } from 'worker/api/controllers/modelConfig/constraintHelper';
 import { toAIModel } from '../../agents/inferutils/config.types';
+import { buildAgentDisplayConfigs } from './modelConfigDefaults';
 
 type ConstraintStrategy = 'throw' | 'fallback';
 
@@ -218,20 +219,9 @@ export class ModelConfigService extends BaseService {
         try {
             // Get all user configs
             const userConfigsRecord = await this.getUserModelConfigs(userId);
-            
+
             // Transform to match frontend interface with constraint info
-            const agents = Object.entries(AGENT_CONFIG).map(([key, config]) => {
-                const constraint = AGENT_CONSTRAINTS.get(key as AgentActionKey);
-                return {
-                    key,
-                    name: config.name,
-                    description: config.description,
-                    constraint: constraint ? {
-                        enabled: constraint.enabled,
-                        allowedModels: Array.from(constraint.allowedModels)
-                    } : undefined
-                };
-            });
+            const agents = buildAgentDisplayConfigs();
 
             const userModelConfigs: Record<string, ModelConfig> = {}
             const defaultConfigs: Record<string, ModelConfig> = {};

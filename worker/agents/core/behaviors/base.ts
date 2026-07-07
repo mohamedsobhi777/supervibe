@@ -20,6 +20,8 @@ import { createScratchTemplateDetails } from '../../utils/templates';
 import { WebSocketMessageData, WebSocketMessageType } from '../../../api/websocketTypes';
 import { AgentActionKey, InferenceContext, InferenceRuntimeOverrides, ModelConfig } from '../../inferutils/config.types';
 import { ModelConfigService } from '../../../database/services/ModelConfigService';
+import { buildDefaultModelConfigsInfo } from '../../../database/services/modelConfigDefaults';
+import { isStandaloneRuntime } from '../../../utils/runtimeMode';
 import { fixProjectIssues } from '../../../services/code-fixer';
 import { FastCodeFixerOperation } from '../../operations/PostPhaseCodeFixer';
 import { looksLikeCommand, validateAndCleanBootstrapCommands } from '../../utils/common';
@@ -562,6 +564,14 @@ export abstract class BaseCodingBehavior<TState extends BaseProjectState>
 
 
     getModelConfigsInfo() {
+        // Standalone runtime has no D1-backed user config store and may have
+        // no userId yet (bare boot); return AGENT_CONFIG defaults directly
+        // rather than routing through the D1-backed ModelConfigService, which
+        // throws on both counts. Workers env never carries the standalone
+        // sentinel, so this branch never runs there.
+        if (isStandaloneRuntime(this.env)) {
+            return Promise.resolve(buildDefaultModelConfigsInfo());
+        }
         const modelService = new ModelConfigService(this.env);
         return modelService.getModelConfigsInfo(this.state.metadata.userId);
     }

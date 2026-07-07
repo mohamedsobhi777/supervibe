@@ -9,6 +9,8 @@ import * as schema from './schema';
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 
 import type { HealthStatusResult } from './types';
+import { isStandaloneRuntime } from '../utils/runtimeMode';
+import { createNoopD1Database } from './noopD1';
 
 // ========================================
 // TYPE DEFINITIONS AND INTERFACES
@@ -36,7 +38,16 @@ export class DatabaseService {
     private readonly enableReplicas: boolean;
 
     constructor(env: Env) {
-        const instrumented = Sentry.instrumentD1WithSentry(env.DB);
+        // Standalone agent runtime has no D1 binding: env.DB is a poisoned
+        // proxy (agent-runtime/src/envAdapter.ts) that throws on ANY property
+        // access, including Sentry's instrumentation reading `db.prepare` to
+        // wrap it. Substitute a genuine no-op D1Database instead of touching
+        // the poisoned binding at all — writes no-op successfully, reads
+        // return empty results. Workers env never carries this sentinel, so
+        // this branch never runs there and instrumentation is unchanged.
+        const instrumented = isStandaloneRuntime(env)
+            ? createNoopD1Database()
+            : Sentry.instrumentD1WithSentry(env.DB);
         this.d1 = instrumented;
         this.db = drizzle(instrumented, { schema });
         this.enableReplicas = env.ENABLE_READ_REPLICAS === 'true';
