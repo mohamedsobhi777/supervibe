@@ -25,5 +25,5 @@ export function buildEnvAdapter(source: Record<string, string | undefined> = pro
     for (const name of POISONED_BINDINGS) {
         env[name] = poisoned(name);
     }
-    return env as Env;
+    return env as unknown as Env;
 }

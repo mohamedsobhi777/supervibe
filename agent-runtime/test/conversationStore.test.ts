@@ -27,7 +27,7 @@ class FakeConversationClient implements ConversationClient {
 					message: row.message,
 				}));
 				this.rows.push(...stored);
-				return Promise.resolve({ error: null });
+				return Promise.resolve({ error: null } as { error: { message: string } | null });
 			},
 
 			delete: () => {
@@ -53,22 +53,22 @@ class FakeConversationClient implements ConversationClient {
 				};
 
 				const chainable = {
-					eq: (column: string, value: string) => {
+					eq: (column: string, value: string): { eq(column: string, value: string): PromiseLike<{ error: { message: string } | null }>; } & PromiseLike<{ error: { message: string } | null }> => {
 						state.accumulated.push({ column, value });
 
 						// Create result that can either be awaited OR have another .eq() called
-						let promise: Promise<{ error: null }> | null = null;
-						const result = {
+						let promise: Promise<{ error: { message: string } | null }> | null = null;
+						const result: any = {
 							eq: (column: string, value: string) => {
 								state.accumulated.push({ column, value });
 								applyDelete();
-								return Promise.resolve({ error: null });
+								return Promise.resolve({ error: null } as { error: { message: string } | null });
 							},
 							then: (resolve: any, reject: any) => {
 								if (!promise) {
 									promise = Promise.resolve().then(() => {
 										applyDelete();
-										return { error: null };
+										return { error: null } as { error: { message: string } | null };
 									});
 								}
 								return promise.then(resolve, reject);
@@ -77,7 +77,7 @@ class FakeConversationClient implements ConversationClient {
 								if (!promise) {
 									promise = Promise.resolve().then(() => {
 										applyDelete();
-										return { error: null };
+										return { error: null } as { error: { message: string } | null };
 									});
 								}
 								return promise.catch(reject);
@@ -120,7 +120,7 @@ class FakeConversationClient implements ConversationClient {
 										}
 
 										const data = filtered.map((row) => ({ message: row.message }));
-										return Promise.resolve({ data, error: null });
+										return Promise.resolve({ data, error: null } as { data: Array<{ message: unknown }> | null; error: { message: string } | null });
 									},
 								};
 							},
