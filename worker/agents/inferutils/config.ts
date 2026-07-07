@@ -1,13 +1,13 @@
-import { 
-    AgentActionKey, 
-    AgentConfig, 
-    AgentConstraintConfig, 
+import {
+    AgentActionKey,
+    AgentConfig,
+    AgentConstraintConfig,
     AIModels,
     AllModels,
     LiteModels,
     RegularModels,
 } from "./config.types";
-import { env } from 'cloudflare:workers';
+import { getRuntimeEnv } from 'worker/utils/runtimeEnv';
 
 // Common configs - these are good defaults
 const COMMON_AGENT_CONFIGS = {
@@ -181,9 +181,32 @@ const DEFAULT_AGENT_CONFIG: AgentConfig = {
     },
 };
 
-export const AGENT_CONFIG: AgentConfig = env.PLATFORM_MODEL_PROVIDERS 
-    ? PLATFORM_AGENT_CONFIG 
-    : DEFAULT_AGENT_CONFIG;
+// Lazily resolved so the env read happens on first access rather than at
+// module-evaluation time — module-scope evaluation runs before
+// `setRuntimeEnv()` is called at process bootstrap (see worker/utils/runtimeEnv.ts).
+// The Proxy preserves plain-object semantics (property access, `in`,
+// `Object.keys`/`Object.entries`) for the many existing call sites that treat
+// AGENT_CONFIG as a static object.
+function resolveAgentConfig(): AgentConfig {
+    return getRuntimeEnv().PLATFORM_MODEL_PROVIDERS
+        ? PLATFORM_AGENT_CONFIG
+        : DEFAULT_AGENT_CONFIG;
+}
+
+export const AGENT_CONFIG: AgentConfig = new Proxy({} as AgentConfig, {
+    get(_target, prop, receiver) {
+        return Reflect.get(resolveAgentConfig(), prop, receiver);
+    },
+    has(_target, prop) {
+        return Reflect.has(resolveAgentConfig(), prop);
+    },
+    ownKeys(_target) {
+        return Reflect.ownKeys(resolveAgentConfig());
+    },
+    getOwnPropertyDescriptor(_target, prop) {
+        return Reflect.getOwnPropertyDescriptor(resolveAgentConfig(), prop);
+    },
+});
 
 
 export const AGENT_CONSTRAINTS: Map<AgentActionKey, AgentConstraintConfig> = new Map([

@@ -15,6 +15,9 @@ import {
 	matchSpacePreviewParams,
 } from './api/handlers/space-preview';
 import { getAgentStub } from './agents';
+import { env as workerGlobalEnv } from 'cloudflare:workers';
+import { setRuntimeEnv } from './utils/runtimeEnv';
+setRuntimeEnv(workerGlobalEnv);
 
 // Durable Object and Service exports
 export { UserAppSandboxService } from './services/sandbox/sandboxSdkClient';

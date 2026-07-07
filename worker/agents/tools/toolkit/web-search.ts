@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { getRuntimeEnv } from 'worker/utils/runtimeEnv';
 import { tool, t } from '../types';
 
 interface SerpApiResponse {
@@ -98,6 +98,7 @@ async function performWebSearch(
     query: string,
     numResults = 5,
 ): Promise<string> {
+    const env = getRuntimeEnv();
     const apiKey = env.SERPAPI_KEY;
     if (!apiKey) {
         return `🔍 Web search requires SerpAPI key. Get one at https://serpapi.com/\nFallback: https://www.google.com/search?q=${encodeURIComponent(query)}`;

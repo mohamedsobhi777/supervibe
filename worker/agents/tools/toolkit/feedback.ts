@@ -1,5 +1,5 @@
 import { captureMessage, withScope, flush } from '@sentry/cloudflare';
-import { env } from 'cloudflare:workers';
+import { getRuntimeEnv } from 'worker/utils/runtimeEnv';
 import { ErrorResult, tool, t } from '../types';
 
 type FeedbackArgs = {
@@ -15,6 +15,7 @@ const submitFeedbackImplementation = async (
 	args: FeedbackArgs
 ): Promise<FeedbackResult> => {
 	try {
+		const env = getRuntimeEnv();
 		const sentryDsn = env.SENTRY_DSN;
 		if (!sentryDsn) {
 			return {
