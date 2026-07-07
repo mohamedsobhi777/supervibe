@@ -1,0 +1,19 @@
+{
+  "name": "@vibesdk/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "isomorphic-git": "*",
+    "openai": "*",
+    "zod": "*"
+  },
+  "devDependencies": {
+    "bun-types": "^1.1.0"
+  }
+}
