@@ -51,6 +51,25 @@ describe('LocalSandboxService', () => {
         expect(files.files[0].filePath).toBe('server.ts');
     });
 
+    it('getFiles applies redaction even when explicit filePaths are provided', async () => {
+        // Mark server.ts as redacted in the metadata.
+        // Access internal metadata (exposed as public property for testing).
+        (service as any).metadata.redacted_files = ['server.ts'];
+
+        // Call getFiles with explicit paths including the redacted file.
+        const result = await service.getFiles('i-test-1', ['server.ts', 'extra.ts']);
+        expect(result.success).toBe(true);
+        expect(result.files.length).toBe(2);
+
+        // server.ts should be redacted even though explicit paths were provided.
+        const serverFile = result.files.find((f) => f.filePath === 'server.ts');
+        expect(serverFile?.fileContents).toBe('[REDACTED]');
+
+        // extra.ts should have real content (created in previous test).
+        const extraFile = result.files.find((f) => f.filePath === 'extra.ts');
+        expect(extraFile?.fileContents).toBe('export const x = 1;');
+    });
+
     it('shutdownInstance stops the dev server', async () => {
         const down = await service.shutdownInstance('i-test-1');
         expect(down.success).toBe(true);

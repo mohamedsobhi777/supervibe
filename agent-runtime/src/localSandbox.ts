@@ -330,15 +330,16 @@ export class LocalSandboxService extends BaseSandboxService {
 
         const instanceDir = this.instanceDir();
         let paths = filePaths;
-        let applyFilter = Boolean(filePaths === undefined);
 
         if (!paths) {
             const important = this.metadata!.importantFiles ?? [];
             paths = await this.expandImportantFiles(instanceDir, important);
-            applyFilter = true;
         }
 
-        const redactedPaths = applyFilter ? new Set(this.metadata!.redacted_files) : new Set<string>();
+        // Always apply redaction regardless of whether filePaths is explicit or implicit.
+        // This ensures files in redacted_files are always masked as '[REDACTED]'.
+        const redactedFiles = this.metadata?.redacted_files ?? [];
+        const redactedPaths = new Set(redactedFiles);
 
         const files: GetFilesResponse['files'] = [];
         const errors: NonNullable<GetFilesResponse['errors']> = [];
@@ -381,6 +382,8 @@ export class LocalSandboxService extends BaseSandboxService {
             return { success: true, logs: { stdout, stderr } };
         }
 
+        // Non-recent history is bounded by the in-memory ring buffer (approx. last 100 entries),
+        // not the full SQLite log table. Full-history reads are a later-phase improvement.
         const cutoff = durationSeconds ? Date.now() - durationSeconds * 1000 : undefined;
         const lines = this.monitor
             .getRecentLogs(Number.MAX_SAFE_INTEGER)
