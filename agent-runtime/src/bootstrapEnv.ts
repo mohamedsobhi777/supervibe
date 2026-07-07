@@ -3,6 +3,14 @@
  * Validates and returns all required and optional environment variables.
  */
 
+/**
+ * SESSION_ID and AGENT_ID flow directly into filesystem paths (see
+ * localSandbox.ts's instanceDir(), which joins `i-${sessionId}` onto
+ * workspaceDir). Restricting them to a safe identifier charset up front
+ * prevents a value like '../../etc' from ever reaching a path join.
+ */
+const SAFE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 export interface BootstrapEnv {
 	sessionId: string;
 	agentId: string;
@@ -43,6 +51,16 @@ export function parseBootstrapEnv(source: Record<string, string | undefined>): B
 
 	if (missing.length > 0) {
 		throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+	}
+
+	const identifierVars = ['SESSION_ID', 'AGENT_ID'] as const;
+	const invalidIdentifiers = identifierVars.filter(
+		(key) => !SAFE_IDENTIFIER_PATTERN.test(source[key]!),
+	);
+	if (invalidIdentifiers.length > 0) {
+		throw new Error(
+			`Invalid environment variables (must match ${SAFE_IDENTIFIER_PATTERN}): ${invalidIdentifiers.join(', ')}`,
+		);
 	}
 
 	return {

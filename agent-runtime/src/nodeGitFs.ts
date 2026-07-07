@@ -8,6 +8,10 @@
  * `/.git/HEAD`) onto a real base directory before delegating to
  * node:fs/promises, so GitVersionControl can run unmodified against a real
  * checkout directory.
+ *
+ * The containment guard (resolveWithin) lives in ./pathSafety.ts and is
+ * shared with localSandbox.ts; it is re-exported here so existing imports of
+ * `resolveWithin` from this module keep working unchanged.
  */
 
 import {
@@ -25,11 +29,36 @@ import {
 	writeFile as fsWriteFile,
 } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { dirname, isAbsolute, resolve, sep } from 'node:path';
 import type { GitFsPromises } from 'worker/agents/git';
+import { resolveWithin } from './pathSafety';
+
+export { resolveWithin } from './pathSafety';
 
 /** The exact stat/lstat return shape GitFsPromises declares. */
 type GitStat = Awaited<ReturnType<GitFsPromises['stat']>>;
+
+/**
+ * Reject a symlink target that would resolve outside baseDir once the
+ * symlink is actually followed on disk.
+ *
+ * Git-managed symlink targets are conventionally relative to the symlink's
+ * own directory (e.g. a link at `/a/link` pointing to `../b/file`), so the
+ * target is resolved against `dirname(realLinkPath)` -- not against baseDir
+ * directly -- mirroring how the OS resolves the link at read time. An
+ * absolute target is resolved as-is before the same containment check, since
+ * node's `symlink()` would otherwise write it to disk verbatim.
+ */
+function assertSymlinkTargetWithin(baseDir: string, realLinkPath: string, target: string): void {
+	const resolvedBase = resolve(baseDir);
+	const resolvedTarget = isAbsolute(target)
+		? resolve(target)
+		: resolve(dirname(realLinkPath), target);
+
+	if (resolvedTarget !== resolvedBase && !resolvedTarget.startsWith(resolvedBase + sep)) {
+		throw new Error(`Symlink target rejected: '${target}' escapes base directory`);
+	}
+}
 
 /** Merge the `type` field isomorphic-git's declared stat shape expects onto a real node Stats object. */
 function toGitStat(stats: Stats): GitStat {
@@ -49,28 +78,6 @@ function toGitStat(stats: Stats): GitStat {
 		isDirectory: () => stats.isDirectory(),
 		isSymbolicLink: () => stats.isSymbolicLink(),
 	};
-}
-
-/**
- * Resolve a virtual path against baseDir and reject any traversal that would
- * escape it. Virtual paths from isomorphic-git are always absolute
- * (dir: '/'), but we do not trust that -- both '..' segments and attempts to
- * re-inject an absolute host path must be neutralized.
- *
- * Strategy: strip any leading slashes (so an absolute-looking virtual path
- * can never be resolved as a host-absolute path), then resolve relative to
- * baseDir. Verify the result stays within baseDir before returning it.
- */
-export function resolveWithin(baseDir: string, virtualPath: string): string {
-	const relative = virtualPath.replace(/^[/\\]+/, '');
-	const resolvedBase = resolve(baseDir);
-	const resolved = resolve(resolvedBase, relative);
-
-	if (resolved !== resolvedBase && !resolved.startsWith(resolvedBase + sep)) {
-		throw new Error(`Path traversal rejected: '${virtualPath}' escapes base directory`);
-	}
-
-	return resolved;
 }
 
 /**
@@ -94,7 +101,11 @@ export function resolveWithin(baseDir: string, virtualPath: string): string {
  *   still be satisfied structurally, so `type` is derived here from
  *   `isDirectory()` and merged onto the returned Stats.
  * - symlink: GitFsPromises declares `(target: string, path: string) => Promise<void>`,
- *   matching node's `symlink(target, path)` order directly.
+ *   matching node's `symlink(target, path)` order directly. `path` is guarded
+ *   via resolveWithin like every other method; `target` additionally passes
+ *   through assertSymlinkTargetWithin (below), since a symlink whose target
+ *   escapes baseDir would let later reads/writes through the link reach the
+ *   real filesystem outside the checkout.
  * - mkdir: options are passed through unchanged (node supports `recursive`).
  */
 export function createNodeGitFs(baseDir: string): GitFsPromises {
@@ -144,6 +155,7 @@ export function createNodeGitFs(baseDir: string): GitFsPromises {
 
 		async symlink(target: string, path: string): Promise<void> {
 			const real = resolveWithin(baseDir, path);
+			assertSymlinkTargetWithin(baseDir, real, target);
 			await fsSymlink(target, real);
 		},
 

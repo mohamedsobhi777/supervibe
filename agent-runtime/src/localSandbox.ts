@@ -31,6 +31,7 @@ import {
 import { ProcessMonitor } from '../../container/process-monitor';
 import { StorageManager } from '../../container/storage';
 import type { LogLine, ProcessInfo } from '../../container/types';
+import { normalizeRelativePath, resolveWithin } from './pathSafety';
 
 /**
  * Metadata persisted per instance, mirroring the Workers client's
@@ -283,12 +284,16 @@ export class LocalSandboxService extends BaseSandboxService {
         }
 
         const instanceDir = this.instanceDir();
-        const donttouch = new Set(this.metadata!.donttouch_files);
+        // Normalized so 'package.json', './package.json', and '/package.json' are all
+        // recognized as the same protected file (see normalizeRelativePath in ./pathSafety.ts).
+        const donttouch = new Set(
+            this.metadata!.donttouch_files.map((entry) => this.tryNormalize(entry) ?? entry),
+        );
         const results: WriteFilesResponse['results'] = [];
         const writtenPaths: string[] = [];
 
         for (const file of files) {
-            if (donttouch.has(file.filePath)) {
+            if (donttouch.has(this.tryNormalize(file.filePath) ?? file.filePath)) {
                 results.push({
                     file: file.filePath,
                     success: false,
@@ -337,19 +342,22 @@ export class LocalSandboxService extends BaseSandboxService {
         }
 
         // Always apply redaction regardless of whether filePaths is explicit or implicit.
-        // This ensures files in redacted_files are always masked as '[REDACTED]'.
+        // This ensures files in redacted_files are always masked as '[REDACTED]'. Entries
+        // are normalized so 'secrets.env', './secrets.env', and '/secrets.env' all match
+        // the same redaction rule (see normalizeRelativePath in ./pathSafety.ts).
         const redactedFiles = this.metadata?.redacted_files ?? [];
-        const redactedPaths = new Set(redactedFiles);
+        const redactedPaths = new Set(redactedFiles.map((entry) => this.tryNormalize(entry) ?? entry));
 
         const files: GetFilesResponse['files'] = [];
         const errors: NonNullable<GetFilesResponse['errors']> = [];
 
         for (const filePath of paths) {
             try {
-                const contents = await readFile(join(instanceDir, filePath), 'utf8');
+                const contents = await readFile(resolveWithin(instanceDir, filePath), 'utf8');
+                const isRedacted = redactedPaths.has(this.tryNormalize(filePath) ?? filePath);
                 files.push({
                     filePath,
-                    fileContents: redactedPaths.has(filePath) ? '[REDACTED]' : contents,
+                    fileContents: isRedacted ? '[REDACTED]' : contents,
                 });
             } catch {
                 errors.push({ file: filePath, error: 'Failed to read file' });
@@ -584,6 +592,23 @@ export class LocalSandboxService extends BaseSandboxService {
         return undefined;
     }
 
+    /**
+     * Normalizes a path for donttouch/redacted membership comparisons, so
+     * './x', '/x', and 'x' are all recognized as the same logical file (see
+     * ./pathSafety.ts). Returns undefined instead of throwing when the path
+     * cannot be normalized (i.e. it would escape the instance directory);
+     * callers fall back to comparing the raw string, which simply will not
+     * match any normalized set entry -- the actual containment rejection for
+     * such paths happens at the resolveWithin call in the read/write path.
+     */
+    private tryNormalize(filePath: string): string | undefined {
+        try {
+            return normalizeRelativePath(filePath);
+        } catch {
+            return undefined;
+        }
+    }
+
     private instanceDir(): string {
         return join(this.workspaceDir, this.instanceId);
     }
@@ -597,7 +622,7 @@ export class LocalSandboxService extends BaseSandboxService {
     }
 
     private async writeFileToDisk(instanceDir: string, filePath: string, contents: string): Promise<void> {
-        const fullPath = join(instanceDir, filePath);
+        const fullPath = resolveWithin(instanceDir, filePath);
         await mkdir(dirname(fullPath), { recursive: true });
         await writeFile(fullPath, contents, 'utf8');
     }
@@ -629,8 +654,8 @@ export class LocalSandboxService extends BaseSandboxService {
     private async expandImportantFiles(instanceDir: string, important: string[]): Promise<string[]> {
         const expanded: string[] = [];
         for (const entry of important) {
-            const fullPath = join(instanceDir, entry);
             try {
+                const fullPath = resolveWithin(instanceDir, entry);
                 const stats = await stat(fullPath);
                 if (stats.isDirectory()) {
                     expanded.push(...(await this.listFilesRecursive(instanceDir, fullPath)));
@@ -638,7 +663,7 @@ export class LocalSandboxService extends BaseSandboxService {
                     expanded.push(entry);
                 }
             } catch {
-                // Skip entries that no longer exist on disk.
+                // Skip entries that no longer exist on disk, or that escape instanceDir.
             }
         }
         return expanded;

@@ -154,12 +154,19 @@ async function readLocalSupabaseKeys(): Promise<LocalSupabaseKeys> {
     return fallback;
 }
 
-/** Signs an HS256 session JWT with the local stack's `SUPABASE_JWT_SECRET`, matching the RLS predicate in supabase/migrations/20260707000001_agent_runtime.sql. */
+/**
+ * Signs an HS256 session JWT with the local stack's `SUPABASE_JWT_SECRET`,
+ * matching the RLS predicate in supabase/migrations/20260707000001_agent_runtime.sql.
+ * Sets `aud: 'authenticated'` so the token also validates against a hosted
+ * Supabase project, which enforces strict `aud` checking (the local stack's
+ * default GoTrue config does not).
+ */
 async function signSessionJwt(sessionId: string, jwtSecret: string): Promise<string> {
     const secretKey = new TextEncoder().encode(jwtSecret);
     return new SignJWT({ session_id: sessionId, role: 'authenticated' })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
+        .setAudience('authenticated')
         .setExpirationTime(Math.floor(Date.now() / 1000) + SESSION_JWT_TTL_SECONDS)
         .sign(secretKey);
 }

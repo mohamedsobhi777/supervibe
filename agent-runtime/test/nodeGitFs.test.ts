@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { GitVersionControl } from 'worker/agents/git';
@@ -28,6 +28,48 @@ describe('createNodeGitFs', () => {
             const resolved = resolveWithin(tmpBase, '/index.js');
             expect(resolved.startsWith(tmpBase)).toBe(true);
             expect(resolved.endsWith('index.js')).toBe(true);
+        });
+    });
+
+    describe('symlink target guard', () => {
+        it('rejects a symlink whose relative target escapes baseDir', () => {
+            const symlinkBase = mkdtempSync(join(tmpdir(), 'vibesdk-node-git-fs-symlink-'));
+            const fs = createNodeGitFs(symlinkBase);
+            // Link lives at /link inside symlinkBase; a target of
+            // '../../../etc/passwd' resolves (relative to the link's own
+            // directory, i.e. symlinkBase itself) well outside symlinkBase.
+            expect(fs.symlink('../../../etc/passwd', '/link')).rejects.toThrow(/Symlink target rejected/);
+        });
+
+        it('rejects a symlink whose absolute target points outside baseDir', () => {
+            const symlinkBase = mkdtempSync(join(tmpdir(), 'vibesdk-node-git-fs-symlink-'));
+            const fs = createNodeGitFs(symlinkBase);
+            expect(fs.symlink('/etc/passwd', '/link')).rejects.toThrow(/Symlink target rejected/);
+        });
+
+        it('allows a symlink whose relative target stays within baseDir', async () => {
+            const symlinkBase = mkdtempSync(join(tmpdir(), 'vibesdk-node-git-fs-symlink-'));
+            writeFileSync(join(symlinkBase, 'real.txt'), 'hello');
+            const fs = createNodeGitFs(symlinkBase);
+
+            await fs.symlink('real.txt', '/link');
+
+            expect(existsSync(join(symlinkBase, 'link'))).toBe(true);
+            expect(readFileSync(join(symlinkBase, 'link'), 'utf8')).toBe('hello');
+        });
+
+        it('allows a symlink target nested in a subdirectory whose ".." segments stay within baseDir', async () => {
+            const symlinkBase = mkdtempSync(join(tmpdir(), 'vibesdk-node-git-fs-symlink-'));
+            mkdirSync(join(symlinkBase, 'sub'), { recursive: true });
+            writeFileSync(join(symlinkBase, 'real.txt'), 'nested-ok');
+            const fs = createNodeGitFs(symlinkBase);
+
+            // Link lives at /sub/link; target '../real.txt' resolves relative
+            // to /sub (the link's own directory) back to baseDir/real.txt,
+            // which is still inside baseDir.
+            await fs.symlink('../real.txt', '/sub/link');
+
+            expect(readFileSync(join(symlinkBase, 'sub', 'link'), 'utf8')).toBe('nested-ok');
         });
     });
 

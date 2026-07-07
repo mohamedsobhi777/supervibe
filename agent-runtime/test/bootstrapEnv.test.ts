@@ -122,4 +122,46 @@ describe('parseBootstrapEnv', () => {
 		expect(result.cloudflareAiGatewayUrl).toBeUndefined();
 		expect(result.cloudflareAiGatewayToken).toBeUndefined();
 	});
+
+	describe('identifier charset guard', () => {
+		it('rejects a SESSION_ID containing path traversal characters', () => {
+			expect(() => {
+				parseBootstrapEnv({
+					SESSION_ID: '../../etc',
+					AGENT_ID: 'a-456',
+					SUPABASE_URL: 'https://supabase.example.com',
+					SUPABASE_ANON_KEY: 'anon-key-here',
+					SUPABASE_SESSION_JWT: 'jwt-token-here',
+					TEMPLATES_BASE_URL: 'https://templates.example.com',
+				});
+			}).toThrow(/SESSION_ID/);
+		});
+
+		it('rejects an AGENT_ID containing a path separator', () => {
+			expect(() => {
+				parseBootstrapEnv({
+					SESSION_ID: 's-123',
+					AGENT_ID: 'a/456',
+					SUPABASE_URL: 'https://supabase.example.com',
+					SUPABASE_ANON_KEY: 'anon-key-here',
+					SUPABASE_SESSION_JWT: 'jwt-token-here',
+					TEMPLATES_BASE_URL: 'https://templates.example.com',
+				});
+			}).toThrow(/AGENT_ID/);
+		});
+
+		it('accepts SESSION_ID and AGENT_ID containing only letters, digits, underscores, and hyphens', () => {
+			const result = parseBootstrapEnv({
+				SESSION_ID: 'session_ABC-123',
+				AGENT_ID: 'agent_XYZ-789',
+				SUPABASE_URL: 'https://supabase.example.com',
+				SUPABASE_ANON_KEY: 'anon-key-here',
+				SUPABASE_SESSION_JWT: 'jwt-token-here',
+				TEMPLATES_BASE_URL: 'https://templates.example.com',
+			});
+
+			expect(result.sessionId).toBe('session_ABC-123');
+			expect(result.agentId).toBe('agent_XYZ-789');
+		});
+	});
 });

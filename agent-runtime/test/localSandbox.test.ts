@@ -38,6 +38,24 @@ describe('LocalSandboxService', () => {
         expect(write.results.find((r) => r.file === 'package.json')?.success).toBe(false);
     });
 
+    it('writeFiles blocks donttouch aliases like "./package.json" and "/package.json"', async () => {
+        const write = await service.writeFiles('i-test-1', [
+            { filePath: './package.json', fileContents: '{}' },
+            { filePath: '/package.json', fileContents: '{}' },
+        ]);
+        expect(write.results.find((r) => r.file === './package.json')?.success).toBe(false);
+        expect(write.results.find((r) => r.file === '/package.json')?.success).toBe(false);
+    });
+
+    it('writeFiles rejects a filePath that escapes the instance directory', async () => {
+        const write = await service.writeFiles('i-test-1', [
+            { filePath: '../../../etc/passwd', fileContents: 'pwned' },
+        ]);
+        const result = write.results.find((r) => r.file === '../../../etc/passwd');
+        expect(result?.success).toBe(false);
+        expect(result?.error).toMatch(/traversal|escapes/i);
+    });
+
     it('executeCommands returns per-command exit codes', async () => {
         const result = await service.executeCommands('i-test-1', ['echo hello', 'exit 3']);
         expect(result.results[0]).toMatchObject({ success: true });
@@ -68,6 +86,37 @@ describe('LocalSandboxService', () => {
         // extra.ts should have real content (created in previous test).
         const extraFile = result.files.find((f) => f.filePath === 'extra.ts');
         expect(extraFile?.fileContents).toBe('export const x = 1;');
+    });
+
+    it('getFiles applies redaction to aliases like "./server.ts" and "/server.ts"', async () => {
+        // server.ts is still marked redacted from the previous test.
+        (service as any).metadata.redacted_files = ['server.ts'];
+
+        const result = await service.getFiles('i-test-1', ['./server.ts', '/server.ts']);
+        expect(result.success).toBe(true);
+        expect(result.files.find((f) => f.filePath === './server.ts')?.fileContents).toBe('[REDACTED]');
+        expect(result.files.find((f) => f.filePath === '/server.ts')?.fileContents).toBe('[REDACTED]');
+    });
+
+    it('getFiles rejects a filePath that escapes the instance directory', async () => {
+        const result = await service.getFiles('i-test-1', ['../../../etc/passwd']);
+        expect(result.success).toBe(true);
+        expect(result.files.length).toBe(0);
+        expect(result.errors?.[0]).toMatchObject({ file: '../../../etc/passwd' });
+    });
+
+    it('getFiles (implicit important-files expansion) skips an important-files entry that escapes the instance directory', async () => {
+        // Access internal metadata (exposed as public property for testing) to
+        // simulate a corrupted/hostile .important_files.json entry, without
+        // disturbing the legitimate 'server.ts' entry other tests rely on.
+        (service as any).metadata.importantFiles = ['server.ts', '../../../etc/passwd'];
+        (service as any).metadata.redacted_files = [];
+
+        // getFiles with no explicit filePaths triggers expandImportantFiles.
+        const result = await service.getFiles('i-test-1');
+        expect(result.success).toBe(true);
+        expect(result.files.some((f) => f.filePath === 'server.ts')).toBe(true);
+        expect(result.files.some((f) => f.filePath.includes('etc/passwd'))).toBe(false);
     });
 
     it('shutdownInstance stops the dev server', async () => {
