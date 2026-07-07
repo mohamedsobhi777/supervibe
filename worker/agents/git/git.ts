@@ -42,9 +42,10 @@ export class GitVersionControl {
     /**
      * Concrete SQLite-backed fs, only constructed on the default (no override) path.
      * Callers that reach for SqliteFS-only members (e.g. exportGitObjects, getStorageStats)
-     * rely on this being the default; it is left unset when an fs override is injected.
+     * rely on this being the default; it is left undefined when an fs override is injected.
+     * SqliteFS-only features (storage stats, git-object export) are unavailable when an fs override is injected.
      */
-    public fs!: SqliteFS;
+    public fs: SqliteFS | undefined;
     /** The fs surface actually used for git operations -- default SqliteFS or the injected override. */
     private readonly gitFs: GitFsPromises;
     private author: { name: string; email: string };
@@ -366,6 +367,9 @@ export class GitVersionControl {
      * Get storage statistics for monitoring and observability
      */
     getStorageStats(): { totalObjects: number; totalBytes: number; largestObject: { path: string; size: number } | null } {
+        if (!this.fs) {
+            throw new Error('getStorageStats requires the SqliteFS backend (not available with an injected filesystem)');
+        }
         return this.fs.getStorageStats();
     }
 }

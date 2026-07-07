@@ -723,15 +723,19 @@ export class CodeGeneratorAgent extends Agent<Env, AgentState> implements AgentI
     }> {
         try {
             // Export git objects efficiently (minimal DO memory usage)
-            const gitObjects = this.git.fs.exportGitObjects();
+            const sqliteFs = this.git.fs;
+            if (!sqliteFs) {
+                throw new Error('exportGitObjects requires the SqliteFS backend (not available with an injected filesystem)');
+            }
+            const gitObjects = sqliteFs.exportGitObjects();
 
             await this.gitInit();
-            
+
             // Ensure template details are available
             await this.behavior.ensureTemplateDetails();
 
             const templateDetails = this.behavior.getTemplateDetails();
-            
+
             return {
                 gitObjects,
                 query: this.state.query || 'N/A',
