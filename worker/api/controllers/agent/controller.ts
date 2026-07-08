@@ -6,7 +6,6 @@ import { getBehaviorTypeForProject } from '../../../agents/core/features';
 import { getAgentStub } from '../../../agents';
 import {
     AgentBootstrapResponse,
-    AgentConnectionData,
     AgentPreviewResponse,
     CodeGenArgs,
     MAX_AGENT_QUERY_LENGTH,
@@ -17,7 +16,7 @@ import { RouteContext } from '../../types/route-context';
 import { AppService } from '../../../database';
 import { AgentSessionService } from '../../../database/services/AgentSessionService';
 import { mintSessionJwt } from '../../../services/auth/sessionJwt';
-import { bootAgentSandbox } from '../../../services/sandbox/agentSandboxBoot';
+import { bootAgentSandbox, getAgentPreviewUrl } from '../../../services/sandbox/agentSandboxBoot';
 import { validateWebSocketOrigin } from '../../../middleware/security/websocket';
 import { createLogger } from '../../../logger';
 import { hasTicketParam } from '../../../middleware/auth/ticketAuth';
@@ -200,48 +199,45 @@ export class CodingAgentController extends BaseController {
     }
 
     /**
-     * Connect to an existing agent instance
-     * Returns connection information for an already created agent
+     * Reconnect to an existing agent session. Mints a fresh session JWT and
+     * resolves the session's Realtime channel + current preview URL so the
+     * browser can rejoin an in-progress or completed generation.
      */
-    static async connectToExistingAgent(
-        request: Request,
-        env: Env,
-        _: ExecutionContext,
-        context: RouteContext
-    ): Promise<ControllerResponse<ApiResponse<AgentConnectionData>>> {
+    static async connectToAgent(request: Request, env: Env, _: ExecutionContext, context: RouteContext): Promise<Response> {
         try {
             const agentId = context.pathParams.agentId;
             if (!agentId) {
-                return CodingAgentController.createErrorResponse<AgentConnectionData>('Missing agent ID parameter', 400);
+                return CodingAgentController.createErrorResponse('Missing agent ID parameter', 400);
             }
 
-            this.logger.info(`Connecting to existing agent: ${agentId}`);
+            // 1:1 mapping between agent and session for this vertical.
+            const sessionId = agentId;
+            const session = await new AgentSessionService(env).getAgentSession(sessionId);
+            if (!session) {
+                return CodingAgentController.createErrorResponse('Agent session not found', 404);
+            }
 
-            try {
-                // Verify the agent instance exists
-                const agentInstance = await getAgentStub(env, agentId);
-                if (!agentInstance || !(await agentInstance.isInitialized())) {
-                    return CodingAgentController.createErrorResponse<AgentConnectionData>('Agent instance not found or not initialized', 404);
+            const token = await mintSessionJwt(sessionId, env);
+
+            let previewUrl: string | null = null;
+            if (session.sandboxId) {
+                try {
+                    previewUrl = await getAgentPreviewUrl(session.sandboxId, env);
+                } catch (error) {
+                    this.logger.warn('Failed to resolve agent preview url', { sessionId, error });
                 }
-                this.logger.info(`Successfully connected to existing agent: ${agentId}`);
-
-                // Construct WebSocket URL
-                const url = new URL(request.url);
-                const websocketUrl = `${url.protocol === 'https:' ? 'wss:' : 'ws:'}//${url.host}/api/agent/${agentId}/ws`;
-
-                const responseData: AgentConnectionData = {
-                    websocketUrl,
-                    agentId,
-                };
-
-                return CodingAgentController.createSuccessResponse(responseData);
-            } catch (error) {
-                this.logger.error(`Failed to connect to agent ${agentId}:`, error);
-                return CodingAgentController.createErrorResponse<AgentConnectionData>(`Agent instance not found or unavailable: ${error instanceof Error ? error.message : String(error)}`, 404);
             }
+
+            return CodingAgentController.createSuccessResponse<AgentBootstrapResponse>({
+                agentId,
+                sessionId,
+                realtimeChannel: `session:${sessionId}`,
+                previewUrl,
+                token,
+            });
         } catch (error) {
-            this.logger.error('Error connecting to existing agent', error);
-            return CodingAgentController.handleError(error, 'connect to existing agent') as ControllerResponse<ApiResponse<AgentConnectionData>>;
+            this.logger.error('Error connecting to agent', error);
+            return CodingAgentController.handleError(error, 'connect to agent');
         }
     }
 

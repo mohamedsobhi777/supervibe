@@ -14,4 +14,7 @@ export function setupCodegenRoutes(app: Hono<AppEnv>): void {
 
     // CRITICAL: Create new app - requires full authentication
     app.post('/api/agent', setAuthLevel(AuthConfig.authenticated), adaptController(CodingAgentController, CodingAgentController.startCodeGeneration));
+
+    // Reconnect to an existing agent session - owner-only
+    app.get('/api/agent/:agentId/connect', setAuthLevel(AuthConfig.ownerOnly), adaptController(CodingAgentController, CodingAgentController.connectToAgent));
 }

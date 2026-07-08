@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bootAgentSandbox } from 'worker/services/sandbox/agentSandboxBoot';
-import type { CommandOptions, CommandResult, Sandbox, SandboxCreateOptions } from '@superserve/sdk';
+import { bootAgentSandbox, getAgentPreviewUrl } from 'worker/services/sandbox/agentSandboxBoot';
+import type { CommandOptions, CommandResult, ConnectionOptions, Sandbox, SandboxCreateOptions } from '@superserve/sdk';
 
 const BASE_ENV = {
     SUPERSERVE_API_KEY: 'ss_test_key',
@@ -215,5 +215,78 @@ describe('bootAgentSandbox', () => {
             bootAgentSandbox({ sessionId: 's', agentId: 'a', sessionJwt: 'j', env, api: fake }),
         ).rejects.toThrow('SUPABASE_URL');
         expect(fake.createCalls).toHaveLength(0);
+    });
+});
+
+interface RecordedConnectCall {
+    sandboxId: string;
+    options?: ConnectionOptions;
+}
+
+interface FakeConnectApi {
+    connect: (sandboxId: string, options?: ConnectionOptions) => Promise<Sandbox>;
+    connectCalls: RecordedConnectCall[];
+    previewUrlCalls: number[];
+}
+
+function makeFakeConnectApi(overrides?: { previewUrl?: string }): FakeConnectApi {
+    const previewUrl = overrides?.previewUrl ?? 'https://8080-sandbox-abc123.superserve.dev';
+    const connectCalls: RecordedConnectCall[] = [];
+    const previewUrlCalls: number[] = [];
+
+    const fakeSandbox = {
+        getPreviewUrl: (port: number): string => {
+            previewUrlCalls.push(port);
+            return previewUrl;
+        },
+    } as unknown as Sandbox;
+
+    return {
+        connect: async (sandboxId: string, options?: ConnectionOptions): Promise<Sandbox> => {
+            connectCalls.push({ sandboxId, options });
+            return fakeSandbox;
+        },
+        connectCalls,
+        previewUrlCalls,
+    };
+}
+
+describe('getAgentPreviewUrl', () => {
+    it('reconnects to the sandbox with the configured api key/base url and returns the port-8080 preview url', async () => {
+        const fake = makeFakeConnectApi({ previewUrl: 'https://8080-sandbox-abc123.superserve.dev' });
+        const env = {
+            SUPERSERVE_API_KEY: 'ss_test_key',
+            SUPERSERVE_BASE_URL: 'https://api.superserve.example',
+        } as unknown as Env;
+
+        const result = await getAgentPreviewUrl('sandbox-abc123', env, fake);
+
+        expect(fake.connectCalls).toEqual([
+            {
+                sandboxId: 'sandbox-abc123',
+                options: { apiKey: 'ss_test_key', baseUrl: 'https://api.superserve.example' },
+            },
+        ]);
+        expect(fake.previewUrlCalls).toEqual([8080]);
+        expect(result).toBe('https://8080-sandbox-abc123.superserve.dev');
+    });
+
+    it('omits baseUrl when SUPERSERVE_BASE_URL is not configured', async () => {
+        const fake = makeFakeConnectApi();
+        const env = { SUPERSERVE_API_KEY: 'ss_test_key' } as unknown as Env;
+
+        await getAgentPreviewUrl('sandbox-1', env, fake);
+
+        expect(fake.connectCalls).toHaveLength(1);
+        expect(fake.connectCalls[0].options?.apiKey).toBe('ss_test_key');
+        expect(fake.connectCalls[0].options?.baseUrl).toBeUndefined();
+    });
+
+    it('throws listing SUPERSERVE_API_KEY when it is missing', async () => {
+        const fake = makeFakeConnectApi();
+        const env = {} as unknown as Env;
+
+        await expect(getAgentPreviewUrl('sandbox-1', env, fake)).rejects.toThrow('SUPERSERVE_API_KEY');
+        expect(fake.connectCalls).toHaveLength(0);
     });
 });

@@ -139,3 +139,24 @@ export async function bootAgentSandbox(opts: {
 
     return { sandboxId: sandbox.id, previewUrl };
 }
+
+/**
+ * Resolves the live preview URL for an already-booted agent sandbox by
+ * reconnecting to it via its sandbox ID. Used by the agent-connect endpoint
+ * to hand the browser a fresh preview URL without re-provisioning anything.
+ */
+export async function getAgentPreviewUrl(
+    sandboxId: string,
+    env: Env,
+    api?: Pick<typeof Sandbox, 'connect'>,
+): Promise<string> {
+    const source = env as unknown as Record<string, string | undefined>;
+    const apiKey = source.SUPERSERVE_API_KEY;
+    if (!apiKey) {
+        throw new Error('Missing required environment variable: SUPERSERVE_API_KEY');
+    }
+    const baseUrl = source.SUPERSERVE_BASE_URL || undefined;
+
+    const sandbox = await (api ?? Sandbox).connect(sandboxId, { apiKey, baseUrl });
+    return sandbox.getPreviewUrl(AGENT_PORT);
+}
