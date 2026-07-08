@@ -42,7 +42,7 @@ const bytea = customType<{ data: Buffer }>({
  */
 export const users = pgTable('users', {
     id: uuid('id').primaryKey(),
-    email: text('email').notNull(),
+    email: text('email').notNull().unique(),
     displayName: text('display_name'),
     username: text('username').unique(),
     avatarUrl: text('avatar_url'),

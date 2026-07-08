@@ -47,10 +47,13 @@ export abstract class BaseService {
     }
 
     /**
-     * Get read-optimized database connection using D1 read replicas
-     * For read-only queries to reduce global latency
-     * 
-     * @param strategy - 'fast' for lowest latency, 'fresh' for latest data
+     * Get database connection for read queries.
+     *
+     * Retained for source compatibility with callers written against the
+     * D1 read-replica API (`'fast' | 'fresh'` strategies). Postgres over
+     * postgres-js has no equivalent read-replica session API, so both
+     * strategies now resolve to the same pooled connection as
+     * `this.database` - see `DatabaseService.getReadDb()` in `../database.ts`.
      */
     protected getReadDb(strategy: 'fast' | 'fresh' = 'fast') {
         return this.db.getReadDb(strategy);

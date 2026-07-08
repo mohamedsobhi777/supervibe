@@ -49,6 +49,7 @@
         "@sentry/react": "^10.30.0",
         "@simplewebauthn/browser": "^13.2.2",
         "@space-do/space": "workspace:*",
+        "@supabase/supabase-js": "^2.49.0",
         "@superserve/sdk": "0.7.7",
         "@types/argon2-browser": "^1.18.4",
         "@types/mdast": "^4.0.4",

@@ -4,8 +4,8 @@
 
 import { BaseService } from './BaseService';
 import * as schema from '../schema';
-import { eq, and, or, desc, asc, sql, isNull, inArray } from 'drizzle-orm';
-import { generateId } from '../../utils/idGenerator';
+import { eq, and, or, desc, asc, sql, isNull } from 'drizzle-orm';
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import { formatRelativeTime } from '../../utils/timeFormatter';
 import type {
     EnhancedAppData,
@@ -16,10 +16,22 @@ import type {
     PublicAppQueryOptions,
     OwnershipResult,
     AppVisibilityUpdateResult,
-    TimePeriod,
     PaginationParams
 } from '../types';
 import { ScreenshotSecurity } from 'worker/utils/screenshot-security';
+
+/**
+ * Thrown by AppService methods/branches that depend on tables dropped in
+ * the lean 7-table Postgres schema rewrite (favorites, stars, app_views -
+ * see worker/database/schema.ts) and not yet re-added. Mutations that have
+ * no meaningful safe default throw this instead of silently no-op'ing.
+ */
+export class DeferredInPhase2aError extends Error {
+    constructor(method: string, table: string) {
+        super(`[AppService] ${method} is not implemented in phase 2a: "${table}" table not yet ported to Postgres`);
+        this.name = 'DeferredInPhase2aError';
+    }
+}
 
 // Type definitions
 type WhereCondition = ReturnType<typeof eq> | ReturnType<typeof and> | ReturnType<typeof or> | undefined;
@@ -30,18 +42,9 @@ type RankedAppQueryResult = {
     viewCount: number;
     starCount: number;
     forkCount: number;
-    recentViews?: number;
-    recentStars?: number;
 };
 
 export class AppService extends BaseService {
-    private readonly RANKING_WEIGHTS = {
-        VIEWS: 1,
-        STARS: 3,
-        FORKS: 5
-    };
-
-
 
     // ========================================
     // APP OPERATIONS
@@ -50,7 +53,7 @@ export class AppService extends BaseService {
     /**
      * Create a new app
      */
-    async createApp(appData:schema.NewApp): Promise<schema.App> {
+    async createApp(appData: schema.NewApp): Promise<schema.App> {
         const [app] = await this.database
             .insert(schema.apps)
             .values({
@@ -68,7 +71,6 @@ export class AppService extends BaseService {
             offset = 0,
             sort = 'recent',
             order = 'desc',
-            period = 'all',
             framework,
             search,
             userId
@@ -77,13 +79,11 @@ export class AppService extends BaseService {
         try {
             const whereConditions = this.buildPublicAppConditions(framework, search);
             const whereClause = this.buildWhereConditions(whereConditions);
-            const readDb = this.getReadDb('fast');
-            
+
             const basicApps = await this.executeRankedQuery(
-                readDb,
+                this.database,
                 whereClause,
                 sort,
-                period,
                 order,
                 limit,
                 offset
@@ -91,10 +91,9 @@ export class AppService extends BaseService {
                 this.logger.error('executeRankedQuery failed', {
                     errorMessage: error instanceof Error ? error.message : String(error),
                     errorName: error instanceof Error ? error.name : 'UnknownError',
-                    errorCause: (error as any)?.cause,
+                    errorCause: error instanceof Error ? error.cause : undefined,
                     errorStack: error instanceof Error ? error.stack?.split('\n').slice(0, 5).join('\n') : undefined,
                     sort,
-                    period,
                     limit,
                     offset
                 });
@@ -102,7 +101,7 @@ export class AppService extends BaseService {
             });
 
             // Get total count for pagination
-            const totalCountResult = await readDb
+            const totalCountResult = await this.database
                 .select({ count: sql<number>`COUNT(*)` })
                 .from(schema.apps)
                 .where(whereClause)
@@ -110,7 +109,7 @@ export class AppService extends BaseService {
                     this.logger.error('Count query failed', {
                         errorMessage: error instanceof Error ? error.message : String(error),
                         errorName: error instanceof Error ? error.name : 'UnknownError',
-                        errorCause: (error as any)?.cause
+                        errorCause: error instanceof Error ? error.cause : undefined
                     });
                     throw error;
                 });
@@ -132,11 +131,11 @@ export class AppService extends BaseService {
             const appIds = basicApps.map((row: RankedAppQueryResult) => row.app.id);
 
             const { userStars, userFavorites } = await this.addUserSpecificAppData(appIds, userId);
-            
+
             const appsWithAnalytics: EnhancedAppData[] = basicApps.map((row: RankedAppQueryResult) => {
                 const isStarred = userStars.has(row.app.id);
                 const isFavorited = userFavorites.has(row.app.id);
-                
+
                 return {
                     ...row.app,
                     userName: row.userName,
@@ -163,7 +162,7 @@ export class AppService extends BaseService {
             this.logger.error('getPublicApps failed', {
                 errorMessage: error instanceof Error ? error.message : String(error),
                 errorName: error instanceof Error ? error.name : 'UnknownError',
-                errorCause: (error as any)?.cause,
+                errorCause: error instanceof Error ? error.cause : undefined,
                 errorType: error?.constructor?.name || 'Unknown',
                 options
             });
@@ -177,11 +176,11 @@ export class AppService extends BaseService {
      */
     private buildCommonAppFilters(framework?: string, search?: string): WhereCondition[] {
         const conditions: WhereCondition[] = [];
-        
+
         if (framework) {
             conditions.push(eq(schema.apps.framework, framework));
         }
-        
+
         if (search) {
             const searchTerm = `%${search.toLowerCase()}%`;
             conditions.push(
@@ -191,7 +190,7 @@ export class AppService extends BaseService {
                 )
             );
         }
-        
+
         return conditions.filter(Boolean);
     }
 
@@ -199,7 +198,7 @@ export class AppService extends BaseService {
      * Helper to build public app query conditions
      */
     private buildPublicAppConditions(
-        framework?: string, 
+        framework?: string,
         search?: string
     ): WhereCondition[] {
         const whereConditions: WhereCondition[] = [
@@ -233,9 +232,9 @@ export class AppService extends BaseService {
         try {
             await this.database
                 .update(schema.apps)
-                .set({ 
-                    ...updates, 
-                    updatedAt: new Date() 
+                .set({
+                    ...updates,
+                    updatedAt: new Date()
                 })
                 .where(eq(schema.apps.id, appId));
             return true;
@@ -285,20 +284,19 @@ export class AppService extends BaseService {
     }
 
     /**
-     * Get user apps with favorite status
-     * Optimized to fetch favorites separately to avoid subquery memory issues
+     * Get user apps with favorite status.
+     *
+     * Deferred in 2a: `favorites` table not yet ported to Postgres
+     * (dropped in the lean 7-table schema rewrite) - `isFavorite` is
+     * always false until it lands.
      */
     async getUserAppsWithFavorites(
-        userId: string, 
+        userId: string,
         options: PaginationParams = {}
     ): Promise<AppWithFavoriteStatus[]> {
         const { limit = 50, offset = 0 } = options;
-        
-        // Use 'fresh' strategy for user's own data to ensure they see latest changes
-        const readDb = this.getReadDb('fresh');
-        
-        // Fetch user's apps first
-        const apps = await readDb
+
+        const apps = await this.database
             .select()
             .from(schema.apps)
             .where(eq(schema.apps.userId, userId))
@@ -310,21 +308,9 @@ export class AppService extends BaseService {
             return [];
         }
 
-        // Fetch favorite status for these apps
-        const appIds = apps.map(app => app.id);
-        const favorites = await readDb
-            .select({ appId: schema.favorites.appId })
-            .from(schema.favorites)
-            .where(and(
-                eq(schema.favorites.userId, userId),
-                inArray(schema.favorites.appId, appIds)
-            ));
-
-        const favoriteSet = new Set(favorites.map(f => f.appId));
-
         const result = apps.map(app => ({
             ...app,
-            isFavorite: favoriteSet.has(app.id),
+            isFavorite: false,
             updatedAtFormatted: formatRelativeTime(app.updatedAt)
         }));
         return this.enrichScreenshotUrls(result);
@@ -334,107 +320,37 @@ export class AppService extends BaseService {
      * Get recent user apps with favorite status
      */
     async getRecentAppsWithFavorites(
-        userId: string, 
+        userId: string,
         limit: number = 10
     ): Promise<AppWithFavoriteStatus[]> {
         return this.getUserAppsWithFavorites(userId, { limit, offset: 0 });
     }
 
     /**
-     * Get only favorited apps for a user
+     * Get only favorited apps for a user.
+     *
+     * Deferred in 2a: `favorites` table not yet ported to Postgres.
      */
     async getFavoriteAppsOnly(
-        userId: string
+        _userId: string
     ): Promise<AppWithFavoriteStatus[]> {
-        const results = await this.database
-            .select({
-                app: schema.apps
-            })
-            .from(schema.apps)
-            .innerJoin(schema.favorites, and(
-                eq(schema.favorites.appId, schema.apps.id),
-                eq(schema.favorites.userId, userId)
-            ))
-            // Authorization: only return public apps OR user's own apps
-            .where(
-                or(
-                    eq(schema.apps.visibility, 'public'),
-                    eq(schema.apps.userId, userId)
-                )
-            )
-            .orderBy(desc(schema.apps.updatedAt));
-
-        // Strip sensitive fields - explicit about what's excluded
-        const mapped = results.map(({ app }) => {
-            const {
-                sessionToken: _sessionToken,
-                originalPrompt: _originalPrompt,
-                finalPrompt: _finalPrompt,
-                githubRepositoryUrl: _githubRepositoryUrl,
-                githubRepositoryVisibility: _githubRepositoryVisibility,
-                ...safeApp
-            } = app;
-
-            return {
-                ...safeApp,
-                // Provide safe defaults for type compatibility
-                sessionToken: null,
-                originalPrompt: '',
-                finalPrompt: null,
-                githubRepositoryUrl: null,
-                githubRepositoryVisibility: null,
-                isFavorite: true as const,
-                updatedAtFormatted: formatRelativeTime(app.updatedAt)
-            };
-        });
-        return this.enrichScreenshotUrls(mapped);
+        throw new DeferredInPhase2aError('getFavoriteAppsOnly', 'favorites');
     }
 
-
     /**
-     * Toggle favorite status for an app
+     * Toggle favorite status for an app.
+     *
+     * Deferred in 2a: `favorites` table not yet ported to Postgres.
      */
-    async toggleAppFavorite(userId: string, appId: string): Promise<FavoriteToggleResult> {
-        // Check if already favorited
-        const existingFavorite = await this.database
-            .select()
-            .from(schema.favorites)
-            .where(and(
-                eq(schema.favorites.appId, appId),
-                eq(schema.favorites.userId, userId)
-            ))
-            .limit(1);
-
-        if (existingFavorite.length > 0) {
-            // Remove favorite
-            await this.database
-                .delete(schema.favorites)
-                .where(and(
-                    eq(schema.favorites.appId, appId),
-                    eq(schema.favorites.userId, userId)
-                ));
-            return { isFavorite: false };
-        } else {
-            // Add favorite
-            await this.database
-                .insert(schema.favorites)
-                .values({
-                    id: generateId(),
-                    userId,
-                    appId,
-                    createdAt: new Date()
-                });
-            return { isFavorite: true };
-        }
+    async toggleAppFavorite(_userId: string, _appId: string): Promise<FavoriteToggleResult> {
+        throw new DeferredInPhase2aError('toggleAppFavorite', 'favorites');
     }
 
     /**
      * Check if user owns an app and get visibility
      */
     async checkAppOwnership(appId: string, userId: string): Promise<OwnershipResult> {
-        // Use read replica for ownership checks
-        const readDb = this.getReadDb('fast');
-        const app = await readDb
+        const rows = await this.database
             .select({
                 id: schema.apps.id,
                 userId: schema.apps.userId,
@@ -442,7 +358,8 @@ export class AppService extends BaseService {
             })
             .from(schema.apps)
             .where(eq(schema.apps.id, appId))
-            .get();
+            .limit(1);
+        const app = rows[0];
 
         if (!app) {
             return { exists: false, isOwner: false };
@@ -456,40 +373,31 @@ export class AppService extends BaseService {
     }
 
     /**
-     * Get single app with favorite status for user
-     * Optimized to fetch favorite status separately
+     * Get single app with favorite status for user.
+     *
+     * Deferred in 2a: `favorites` table not yet ported to Postgres -
+     * `isFavorite` is always false until it lands.
      */
     async getSingleAppWithFavoriteStatus(
-        appId: string, 
+        appId: string,
         userId: string
     ): Promise<AppWithFavoriteStatus | null> {
-        // Use 'fresh' strategy since this includes user-specific favorite status
-        const readDb = this.getReadDb('fresh');
-        
-        // Fetch app first
-        const app = await readDb
+        const appRows = await this.database
             .select()
             .from(schema.apps)
             .where(eq(schema.apps.id, appId))
-            .get();
+            .limit(1);
+        const app = appRows[0];
 
         if (!app) {
             return null;
         }
 
-        // Check if favorited
-        const favorite = await readDb
-            .select({ id: schema.favorites.id })
-            .from(schema.favorites)
-            .where(and(
-                eq(schema.favorites.userId, userId),
-                eq(schema.favorites.appId, appId)
-            ))
-            .get();
+        this.logger.debug('getSingleAppWithFavoriteStatus: favorites deferred in 2a', { appId, userId });
 
         const result = {
             ...app,
-            isFavorite: !!favorite,
+            isFavorite: false,
             updatedAtFormatted: formatRelativeTime(app.updatedAt)
         };
         const [enriched] = await this.enrichScreenshotUrls([result]);
@@ -551,12 +459,14 @@ export class AppService extends BaseService {
     // ========================================
 
     /**
-     * Get app details with stats
+     * Get app details with stats.
+     *
+     * Deferred in 2a: viewCount/starCount/userStarred/userFavorited depend
+     * on the appViews/stars/favorites tables (dropped in the lean 7-table
+     * schema rewrite) - stubbed to zero/false until those tables land.
      */
     async getAppDetails(appId: string, userId?: string): Promise<EnhancedAppData | null> {
-        const readDb = this.getReadDb('fast');
-        
-        const appResult = await readDb
+        const appRows = await this.database
             .select({
                 app: schema.apps,
                 userName: schema.users.displayName,
@@ -565,7 +475,8 @@ export class AppService extends BaseService {
             .from(schema.apps)
             .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
             .where(eq(schema.apps.id, appId))
-            .get();
+            .limit(1);
+        const appResult = appRows[0];
 
         if (!appResult) {
             return null;
@@ -573,144 +484,64 @@ export class AppService extends BaseService {
 
         const app = appResult.app;
 
-        // Get stats in parallel using same pattern as analytics service
-        // Use 'fresh' strategy for user-specific queries for consistency
-        const userReadDb = userId ? this.getReadDb('fresh') : readDb;
-        
-        const [viewCount, starCount, isFavorite, userHasStarred] = await Promise.all([
-            // View count
-            readDb
-                .select({ count: sql<number>`count(*)` })
-                .from(schema.appViews)
-                .where(eq(schema.appViews.appId, appId))
-                .get()
-                .then(r => r?.count || 0),
-            
-            // Star count
-            readDb
-                .select({ count: sql<number>`count(*)` })
-                .from(schema.stars)
-                .where(eq(schema.stars.appId, appId))
-                .get()
-                .then(r => r?.count || 0),
-            
-            // Is favorited by current user
-            userId ? userReadDb
-                .select({ id: schema.favorites.id })
-                .from(schema.favorites)
-                .where(and(
-                    eq(schema.favorites.userId, userId),
-                    eq(schema.favorites.appId, appId)
-                ))
-                .get()
-                .then(r => !!r) : false,
-            
-            // Is starred by current user
-            userId ? userReadDb
-                .select({ id: schema.stars.id })
-                .from(schema.stars)
-                .where(and(
-                    eq(schema.stars.userId, userId),
-                    eq(schema.stars.appId, appId)
-                ))
-                .get()
-                .then(r => !!r) : false
-        ]);
-        
+        this.logger.debug('getAppDetails: social stats deferred in 2a', { appId, userId });
+
         const result = {
             ...app,
             userName: appResult.userName,
             userAvatar: appResult.userAvatar,
-            starCount,
-            userStarred: userHasStarred,
-            userFavorited: isFavorite,
-            viewCount
+            starCount: 0,
+            userStarred: false,
+            userFavorited: false,
+            viewCount: 0
         };
         const [enriched] = await this.enrichScreenshotUrls([result]);
         return enriched;
     }
 
     /**
-     * Toggle star status for an app (star/unstar)
-     * Uses same pattern as toggleAppFavorite
+     * Toggle star status for an app (star/unstar).
+     *
+     * Deferred in 2a: `stars` table not yet ported to Postgres.
      */
-    async toggleAppStar(userId: string, appId: string): Promise<{ isStarred: boolean; starCount: number }> {
-        // Check if already starred
-        const existingStar = await this.database
-            .select({ id: schema.stars.id })
-            .from(schema.stars)
-            .where(and(
-                eq(schema.stars.userId, userId),
-                eq(schema.stars.appId, appId)
-            ))
-            .get();
-
-        if (existingStar) {
-            // Unstar
-            await this.database
-                .delete(schema.stars)
-                .where(eq(schema.stars.id, existingStar.id))
-                .run();
-        } else {
-            // Star
-            await this.database
-                .insert(schema.stars)
-                .values({
-                    id: generateId(),
-                    userId,
-                    appId,
-                    starredAt: new Date()
-                })
-                .run();
-        }
-
-        // Get updated star count
-        const starCountResult = await this.database
-            .select({ count: sql<number>`count(*)` })
-            .from(schema.stars)
-            .where(eq(schema.stars.appId, appId))
-            .get();
-
-        return {
-            isStarred: !existingStar,
-            starCount: starCountResult?.count || 0
-        };
+    async toggleAppStar(_userId: string, _appId: string): Promise<{ isStarred: boolean; starCount: number }> {
+        throw new DeferredInPhase2aError('toggleAppStar', 'stars');
     }
 
     /**
-     * Record app view with duplicate prevention
+     * Record app view with duplicate prevention.
+     *
+     * Deferred in 2a: `app_views` table not yet ported to Postgres. This
+     * is a fail-safe no-op rather than a throw, because `getAppDetails`
+     * calls it unconditionally on every read - matching the original's
+     * swallow-all-errors contract for view tracking.
      */
     async recordAppView(appId: string, userId: string): Promise<void> {
-        try {
-            await this.database
-                .insert(schema.appViews)
-                .values({
-                    id: generateId(),
-                    appId,
-                    userId,
-                    viewedAt: new Date()
-                })
-                .run();
-        } catch {
-            // Ignore duplicate view errors
-        }
+        this.logger.debug('recordAppView: deferred in 2a, appViews table not ported', { appId, userId });
     }
 
     /**
-     * Get user apps with analytics data
+     * Get user apps with analytics data.
+     *
+     * Deferred in 2a: sort "starred" depends on `favorites` (dropped in
+     * the lean 7-table schema rewrite) and throws; other sorts work, with
+     * view/star counts stubbed to zero (see executeRankedQuery).
      */
     async getUserAppsWithAnalytics(userId: string, options: Partial<AppQueryOptions> = {}): Promise<EnhancedAppData[]> {
-        const { 
-            limit = 50, 
-            offset = 0, 
-            status, 
-            visibility, 
+        const {
+            limit = 50,
+            offset = 0,
+            status,
+            visibility,
             framework,
             search,
-            sort = 'recent', 
-            order = 'desc',
-            period = 'all'
+            sort = 'recent',
+            order = 'desc'
         } = options;
+
+        if (sort === 'starred') {
+            throw new DeferredInPhase2aError('getUserAppsWithAnalytics(sort=starred)', 'favorites');
+        }
 
         const whereConditions: WhereCondition[] = [
             eq(schema.apps.userId, userId),
@@ -720,43 +551,11 @@ export class AppService extends BaseService {
         ];
 
         const whereClause = this.buildWhereConditions(whereConditions);
-        
-        // Handle starred sort separately
-        if (sort === 'starred') {
-            const results = await this.database
-                .select({
-                    app: schema.apps,
-                    userName: schema.users.displayName,
-                    userAvatar: schema.users.avatarUrl,
-                    ...this.getCountSubqueries()
-                })
-                .from(schema.apps)
-                .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
-                .innerJoin(schema.favorites, eq(schema.favorites.appId, schema.apps.id))
-                .where(and(whereClause, eq(schema.favorites.userId, userId)))
-                .orderBy(desc(schema.favorites.createdAt))
-                .limit(limit)
-                .offset(offset);
-                
-            const starredApps = results.map(r => ({
-                ...r.app,
-                userName: r.userName,
-                userAvatar: r.userAvatar,
-                viewCount: r.viewCount || 0,
-                starCount: r.starCount || 0,
-                forkCount: r.forkCount || 0,
-                likeCount: 0,
-                userStarred: false,
-                userFavorited: true // These are favorited apps
-            }));
-            return this.enrichScreenshotUrls(starredApps);
-        }
 
         const basicApps = await this.executeRankedQuery(
             this.database,
             whereClause,
             sort,
-            period as TimePeriod,
             order,
             limit,
             offset
@@ -768,7 +567,7 @@ export class AppService extends BaseService {
 
         const appIds = basicApps.map((row: RankedAppQueryResult) => row.app.id);
         const { userStars, userFavorites } = await this.addUserSpecificAppData(appIds, userId);
-        
+
         const normalApps = basicApps.map((row: RankedAppQueryResult) => ({
             ...row.app,
             userName: row.userName,
@@ -784,10 +583,16 @@ export class AppService extends BaseService {
     }
 
     /**
-     * Get total count of user apps with filters (for pagination)
+     * Get total count of user apps with filters (for pagination).
+     *
+     * Deferred in 2a: sort "starred" depends on `favorites` and throws.
      */
     async getUserAppsCount(userId: string, options: Partial<AppQueryOptions> = {}): Promise<number> {
         const { status, visibility, framework, search, sort = 'recent' } = options;
+
+        if (sort === 'starred') {
+            throw new DeferredInPhase2aError('getUserAppsCount(sort=starred)', 'favorites');
+        }
 
         const whereConditions: WhereCondition[] = [
             eq(schema.apps.userId, userId),
@@ -798,106 +603,53 @@ export class AppService extends BaseService {
 
         const whereClause = this.buildWhereConditions(whereConditions);
 
-        const readDb = this.getReadDb('fast');
-        const countQuery = readDb
+        const countResult = await this.database
             .select({ count: sql<number>`COUNT(*)` })
-            .from(schema.apps);
-
-        if (sort === 'starred') {
-            const countResult = await countQuery
-                .innerJoin(schema.favorites, eq(schema.favorites.appId, schema.apps.id))
-                .where(and(whereClause, eq(schema.favorites.userId, userId)));
-            return countResult[0]?.count || 0;
-        } else {
-            const countResult = await countQuery.where(whereClause);
-            return countResult[0]?.count || 0;
-        }
+            .from(schema.apps)
+            .where(whereClause);
+        return countResult[0]?.count || 0;
     }
 
     /**
-     * Execute ranked query with subqueries for memory efficiency
-     * Uses subqueries in ORDER BY to avoid loading all rows before pagination
+     * Execute ranked query for app listings.
+     *
+     * Deferred in 2a: trending/popular ranking depends on appViews/stars
+     * (dropped in the lean 7-table schema rewrite) - both degrade to
+     * recency ordering with view/star counts stubbed to zero. forkCount
+     * stays real (self-join on `apps.parent_app_id`, no deferred table).
      */
     private async executeRankedQuery(
-        db: ReturnType<typeof this.getReadDb>,
+        db: PostgresJsDatabase<typeof schema>,
         whereClause: ReturnType<typeof this.buildWhereConditions>,
         sort: string,
-        period: TimePeriod,
         order: string,
         limit: number,
         offset: number
     ): Promise<RankedAppQueryResult[]> {
-        // Use subquery-based sorting for memory efficiency
-        // This allows D1 to apply LIMIT during index scan instead of after GROUP BY
         if (sort === 'trending' || sort === 'popular') {
-            const periodThreshold = sort === 'trending' ? this.getTimePeriodThreshold(period) : null;
-            const periodUnixTimestamp = periodThreshold ? Math.floor(periodThreshold.getTime() / 1000) : 0;
-            
-            // Define count subqueries
-            const viewCountSubquery = sql<number>`(SELECT COUNT(*) FROM ${schema.appViews} WHERE ${schema.appViews.appId} = ${schema.apps.id})`;
-            const starCountSubquery = sql<number>`(SELECT COUNT(*) FROM ${schema.stars} WHERE ${schema.stars.appId} = ${schema.apps.id})`;
             const forkCountSubquery = sql<number>`(SELECT COUNT(*) FROM ${schema.apps} AS forks WHERE forks.parent_app_id = ${schema.apps.id})`;
-            
-            if (sort === 'popular') {
-                // Popular algorithm: (views*1 + stars*3) DESC
-                const orderByExpression = sql`(
-                    ${viewCountSubquery} * ${this.RANKING_WEIGHTS.VIEWS} +
-                    ${starCountSubquery} * ${this.RANKING_WEIGHTS.STARS}
-                ) DESC`;
-                
-                return db
-                    .select({
-                        app: schema.apps,
-                        userName: schema.users.displayName,
-                        userAvatar: schema.users.avatarUrl,
-                        viewCount: viewCountSubquery,
-                        starCount: starCountSubquery,
-                        forkCount: forkCountSubquery,
-                    })
-                    .from(schema.apps)
-                    .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
-                    .where(whereClause)
-                    .orderBy(orderByExpression)
-                    .limit(limit)
-                    .offset(offset);
-            } else { // trending
-                // Trending algorithm: Activity score (scaled by 10M) + recency bonus
-                const recentViewsSubquery = sql<number>`(SELECT COUNT(*) FROM ${schema.appViews} WHERE ${schema.appViews.appId} = ${schema.apps.id} AND ${schema.appViews.viewedAt} >= ${periodUnixTimestamp})`;
-                const recentStarsSubquery = sql<number>`(SELECT COUNT(*) FROM ${schema.stars} WHERE ${schema.stars.appId} = ${schema.apps.id} AND ${schema.stars.starredAt} >= ${periodUnixTimestamp})`;
-                
-                const orderByExpression = sql`(
-                    (
-                        ${recentViewsSubquery} * ${this.RANKING_WEIGHTS.VIEWS} +
-                        ${recentStarsSubquery} * ${this.RANKING_WEIGHTS.STARS} * 2
-                    ) * 10000000 + 
-                    CAST((1000000 / (1.0 + (strftime('%s', 'now') - ${schema.apps.updatedAt}) / 86400.0)) AS INTEGER)
-                ) DESC`;
-                
-                return db
-                    .select({
-                        app: schema.apps,
-                        userName: schema.users.displayName,
-                        userAvatar: schema.users.avatarUrl,
-                        viewCount: viewCountSubquery,
-                        starCount: starCountSubquery,
-                        forkCount: forkCountSubquery,
-                        recentViews: recentViewsSubquery,
-                        recentStars: recentStarsSubquery,
-                    })
-                    .from(schema.apps)
-                    .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
-                    .where(whereClause)
-                    .orderBy(orderByExpression)
-                    .limit(limit)
-                    .offset(offset);
-            }
+
+            return db
+                .select({
+                    app: schema.apps,
+                    userName: schema.users.displayName,
+                    userAvatar: schema.users.avatarUrl,
+                    viewCount: sql<number>`0`,
+                    starCount: sql<number>`0`,
+                    forkCount: forkCountSubquery,
+                })
+                .from(schema.apps)
+                .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
+                .where(whereClause)
+                .orderBy(desc(schema.apps.updatedAt))
+                .limit(limit)
+                .offset(offset);
         } else {
-            // Simple query for recent/starred sorts
+            // Simple query for recent sort ("starred" public-listing order
+            // also depends on the deferred `stars` table; falls back to
+            // recency, same as the default).
             const direction = order === 'asc' ? asc : desc;
-            const orderByExpression = sort === 'starred' 
-                ? sql`(SELECT COUNT(*) FROM ${schema.stars} WHERE ${schema.stars.appId} = ${schema.apps.id}) DESC`
-                : direction(schema.apps.updatedAt);
-                
+
             return db
                 .select({
                     app: schema.apps,
@@ -908,7 +660,7 @@ export class AppService extends BaseService {
                 .from(schema.apps)
                 .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
                 .where(whereClause)
-                .orderBy(orderByExpression)
+                .orderBy(direction(schema.apps.updatedAt))
                 .limit(limit)
                 .offset(offset);
         }
@@ -916,131 +668,51 @@ export class AppService extends BaseService {
 
     private getCountSubqueries() {
         return {
-            viewCount: sql<number>`(SELECT COUNT(*) FROM ${schema.appViews} WHERE ${schema.appViews.appId} = ${schema.apps.id})`,
-            starCount: sql<number>`(SELECT COUNT(*) FROM ${schema.stars} WHERE ${schema.stars.appId} = ${schema.apps.id})`,
+            // Deferred in 2a: appViews/stars tables not yet ported.
+            viewCount: sql<number>`0`,
+            starCount: sql<number>`0`,
             forkCount: sql<number>`(SELECT COUNT(*) FROM ${schema.apps} AS forks WHERE forks.parent_app_id = ${schema.apps.id})`
         };
     }
 
-    private async addUserSpecificAppData(
-        appIds: string[], 
-        userId?: string
-    ): Promise<{ userStars: Set<string>; userFavorites: Set<string> }> {
-        if (!userId || appIds.length === 0) {
-            return { userStars: new Set(), userFavorites: new Set() };
-        }
-
-        const userReadDb = this.getReadDb('fresh');
-        
-        // Use Drizzle's inArray for better compatibility
-        // We'll batch if needed to avoid D1 limits
-        const BATCH_SIZE = 50;
-        const userStars = new Set<string>();
-        const userFavorites = new Set<string>();
-
-        try {
-            // Process in batches if needed
-            for (let i = 0; i < appIds.length; i += BATCH_SIZE) {
-                const batch = appIds.slice(i, i + BATCH_SIZE);
-                
-                // Fetch stars and favorites for this batch
-                const [starsResult, favoritesResult] = await Promise.all([
-                    userReadDb
-                        .select({ appId: schema.stars.appId })
-                        .from(schema.stars)
-                        .where(and(
-                            eq(schema.stars.userId, userId),
-                            inArray(schema.stars.appId, batch)
-                        )),
-                    userReadDb
-                        .select({ appId: schema.favorites.appId })
-                        .from(schema.favorites)
-                        .where(and(
-                            eq(schema.favorites.userId, userId),
-                            inArray(schema.favorites.appId, batch)
-                        ))
-                ]);
-
-                // Add to sets
-                starsResult.forEach(s => userStars.add(s.appId));
-                favoritesResult.forEach(f => userFavorites.add(f.appId));
-            }
-        } catch (error) {
-            // Return empty sets on error to not break the app
-            return { userStars: new Set(), userFavorites: new Set() };
-        }
-
-        return { userStars, userFavorites };
-    }
-
     /**
-     * Get date threshold for time period filtering
+     * Deferred in 2a: `stars`/`favorites` tables not yet ported to
+     * Postgres. Always returns empty sets, consistent with this helper's
+     * pre-existing error-fallback behavior.
      */
-    private getTimePeriodThreshold(period: TimePeriod): Date {
-        const now = new Date();
-        switch (period) {
-            case 'today':
-                return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            case 'week': {
-                const weekAgo = new Date(now);
-                weekAgo.setDate(now.getDate() - 7);
-                return weekAgo;
-            }
-            case 'month': {
-                const monthAgo = new Date(now);
-                monthAgo.setMonth(now.getMonth() - 1);
-                return monthAgo;
-            }
-            case 'all':
-            default:
-                return new Date(0); // Beginning of time
-        }
+    private async addUserSpecificAppData(
+        _appIds: string[],
+        _userId?: string
+    ): Promise<{ userStars: Set<string>; userFavorites: Set<string> }> {
+        return { userStars: new Set(), userFavorites: new Set() };
     }
 
     /**
-     * Delete an app with ownership verification and cascade delete related records
+     * Delete an app with ownership verification and cascade delete related records.
+     *
+     * Deferred in 2a: favorites/stars/appViews cascade-deletes are skipped
+     * - those tables don't exist yet in Postgres (dropped in the lean
+     * 7-table schema rewrite), so there is nothing to clean up there.
      */
     async deleteApp(appId: string, userId: string): Promise<{ success: boolean; error?: string }> {
         try {
             // First check if app exists and user owns it
             const ownershipResult = await this.checkAppOwnership(appId, userId);
-            
+
             if (!ownershipResult.exists) {
                 return { success: false, error: 'App not found' };
             }
-            
+
             if (!ownershipResult.isOwner) {
                 return { success: false, error: 'You can only delete your own apps' };
             }
 
-            // Delete related records first (foreign key constraints)
-            // This follows the cascade delete pattern for data integrity
-            
-            // Delete favorites
-            await this.database
-                .delete(schema.favorites)
-                .where(eq(schema.favorites.appId, appId));
-            
-            // Delete stars  
-            await this.database
-                .delete(schema.stars)
-                .where(eq(schema.stars.appId, appId));
-            
-            // Delete app views
-            await this.database
-                .delete(schema.appViews)
-                .where(eq(schema.appViews.appId, appId));
-            
-            // Handle fork relationships properly
-            // If this app is a parent, make forks independent (don't delete them!)
+            // Handle fork relationships: make forks independent (don't delete them!)
             await this.database
                 .update(schema.apps)
                 .set({ parentAppId: null })
                 .where(eq(schema.apps.parentAppId, appId));
-            
-            // If this app is a fork, we don't need to do anything special
-            // (the parent fork count will be handled by analytics recalculation)
-            
+
             // Finally delete the app itself
             const deleteResult = await this.database
                 .delete(schema.apps)
