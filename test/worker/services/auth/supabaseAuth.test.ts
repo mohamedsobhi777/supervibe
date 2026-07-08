@@ -70,6 +70,49 @@ describe('getUserFromToken', () => {
 
         await expect(getUserFromToken(env, 'good', throwingFactory)).resolves.toBeNull();
     });
+
+    it('returns null when both error and user are present (error takes precedence)', async () => {
+        const factoryErrorAndUser: SupabaseClientFactory = () => ({
+            auth: {
+                getUser: async () => ({
+                    data: { user: { id: 'u1', email: 'a@b.com' } },
+                    error: { message: 'stale session' },
+                }),
+            },
+        });
+
+        const user = await getUserFromToken(env, 'good', factoryErrorAndUser);
+        expect(user).toBeNull();
+    });
+
+    it('returns null when getUser rejects (network failure mid-call)', async () => {
+        const factoryGetUserThrows: SupabaseClientFactory = () => ({
+            auth: {
+                getUser: async () => {
+                    throw new Error('network');
+                },
+            },
+        });
+
+        const user = await getUserFromToken(env, 'good', factoryGetUserThrows);
+        expect(user).toBeNull();
+    });
+
+    it('returns null for whitespace-only token', async () => {
+        const factoryRejectWhitespace: SupabaseClientFactory = () => ({
+            auth: {
+                getUser: async (token: string) => {
+                    if (token.trim() === '') {
+                        return { data: { user: null }, error: { message: 'invalid token' } };
+                    }
+                    return { data: { user: { id: 'u1', email: 'a@b.com' } }, error: null };
+                },
+            },
+        });
+
+        const user = await getUserFromToken(env, '   ', factoryRejectWhitespace);
+        expect(user).toBeNull();
+    });
 });
 
 describe('requireUser', () => {
