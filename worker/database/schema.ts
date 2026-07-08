@@ -240,6 +240,30 @@ export const systemSettings = pgTable('system_settings', {
 });
 
 // ========================================
+// AGENT RUNTIME
+// ========================================
+
+/**
+ * Agent Sessions table - Drizzle mapping for the `agent_sessions` table
+ * created in `supabase/migrations/20260707000001_agent_runtime.sql`. The
+ * Phase-1 standalone agent runtime (`agent-runtime/`) writes this table via
+ * supabase-js under RLS (a session-scoped JWT's `session_id` claim); this
+ * mapping is the counterpart used on the service-role Postgres connection,
+ * which bypasses RLS by design (see the migration's policy comments).
+ */
+export const agentSessions = pgTable('agent_sessions', {
+    sessionId: text('session_id').primaryKey(),
+    agentId: text('agent_id').notNull(),
+    userId: uuid('user_id'),
+    status: text('status').notNull().default('provisioning'),
+    initArgs: jsonb('init_args').$type<Record<string, unknown>>(),
+    sandboxId: text('sandbox_id'),
+
+    lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ========================================
 // TYPE EXPORTS FOR APPLICATION USE
 // ========================================
 
@@ -263,3 +287,6 @@ export type NewRateLimitBucket = typeof rateLimitBuckets.$inferInsert;
 
 export type SystemSetting = typeof systemSettings.$inferSelect;
 export type NewSystemSetting = typeof systemSettings.$inferInsert;
+
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type NewAgentSession = typeof agentSessions.$inferInsert;
