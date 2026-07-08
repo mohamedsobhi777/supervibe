@@ -28,6 +28,21 @@ export class SecurityError extends Error {
     }
 }
 
+/**
+ * Thrown when a request carries no valid authenticated user — missing,
+ * malformed, or Supabase-rejected token/session. Used by
+ * `worker/services/auth/supabaseAuth.ts`'s `requireUser`; reuses
+ * `SecurityError`/`SecurityErrorType.UNAUTHORIZED` so it flows through the
+ * existing `errorResponse()` (worker/api/responses.ts) and `ErrorHandler`
+ * (worker/utils/ErrorHandling.ts) handling unchanged.
+ */
+export class UnauthorizedError extends SecurityError {
+    constructor(message: string = 'Unauthorized') {
+        super(SecurityErrorType.UNAUTHORIZED, message, 401);
+        this.name = 'UnauthorizedError';
+    }
+}
+
 export class RateLimitExceededError extends SecurityError {
     public details: RateLimitError;
     constructor(
