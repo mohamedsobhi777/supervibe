@@ -48,3 +48,9 @@ SUPERSERVE_SANDBOX_HOST="sandbox.superserve.ai"
 SUPERSERVE_BASE_URL=""
 SUPERSERVE_EGRESS_ALLOW=""
 SUPERSERVE_PREVIEW_TIMEOUT_SECONDS="86400"
+
+# Frontend (Vite) Supabase client - browser-side public vars, baked in at
+# build time via import.meta.env. Distinct from any server-side Supabase
+# secrets used by the Worker.
+VITE_SUPABASE_URL=""
+VITE_SUPABASE_ANON_KEY=""
