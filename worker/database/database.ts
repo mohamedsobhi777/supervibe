@@ -21,6 +21,7 @@ export type {
     UserSecret, NewUserSecret,
     RateLimitBucket, NewRateLimitBucket,
     SystemSetting, NewSystemSetting,
+    AgentSession, NewAgentSession,
 } from './schema';
 
 
