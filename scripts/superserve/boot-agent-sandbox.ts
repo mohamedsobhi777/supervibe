@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Boots a SuperServe sandbox from the `vibesdk-agent` template (built by
+ * Boots a SuperServe sandbox from the `bun-agent-runtime` template (built by
  * build-agent-template.ts) and starts the standalone agent process
  * (agent-runtime/src/main.ts) inside it, detached, for one chat session.
  *
@@ -21,7 +21,7 @@
  *   SUPABASE_SESSION_JWT     - short-lived session-scoped JWT (RLS-gated)
  *   TEMPLATES_BASE_URL       - HTTP base URL the agent fetches templates from
  * Optional env:
- *   SUPERSERVE_AGENT_TEMPLATE - template name (default: vibesdk-agent)
+ *   SUPERSERVE_AGENT_TEMPLATE - template name (default: bun-agent-runtime)
  *   SUPERSERVE_BASE_URL        - SuperServe API base URL override
  *   CLOUDFLARE_AI_GATEWAY_URL   - AI Gateway URL, if routing LLM calls through it
  *   CLOUDFLARE_AI_GATEWAY_TOKEN - AI Gateway auth token
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 	}
 
 	const bootEnv = readRequiredEnv(process.env);
-	const templateName = process.env.SUPERSERVE_AGENT_TEMPLATE ?? 'vibesdk-agent';
+	const templateName = process.env.SUPERSERVE_AGENT_TEMPLATE ?? 'bun-agent-runtime';
 	const baseUrl = process.env.SUPERSERVE_BASE_URL || undefined;
 
 	const envVars: Record<string, string> = {

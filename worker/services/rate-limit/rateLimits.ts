@@ -111,14 +111,19 @@ export class RateLimitService {
         
         switch (rateLimitConfig.store) {
             case RateLimitStore.RATE_LIMITER: {
-                // Cloudflare `RateLimit` binding - absent on Vercel/standalone, so this
-                // throws there and the caller's try/catch fails it open (deliberately
-                // out of scope for the Postgres port - see phase2b-rest task 3 report).
-                const result = await (env[rateLimitConfig.bindingName as keyof Env] as RateLimit).limit({ key });
+                // Cloudflare `RateLimit` binding - absent on Vercel/standalone.
+                // Fail open QUIETLY when the binding is missing (rather than
+                // throwing a TypeError on every request) - the Postgres port of
+                // these auth/global limits is deliberately out of scope (see
+                // phase2b-rest task 3 report).
+                const limiter = env[rateLimitConfig.bindingName as keyof Env] as RateLimit | undefined;
+                if (!limiter) return { success: true };
+                const result = await limiter.limit({ key });
                 return { success: result.success };
             }
             case RateLimitStore.KV: {
-                // Cloudflare KV binding - same Vercel/standalone fail-open deferral as above.
+                // Cloudflare KV binding - same Vercel/standalone quiet fail-open as above.
+                if (!env.VibecoderStore) return { success: true };
                 return await KVRateLimitStore.increment(env.VibecoderStore, key, rateLimitConfig as KVRateLimitConfig, incrementBy);
             }
             case RateLimitStore.DURABLE_OBJECT:

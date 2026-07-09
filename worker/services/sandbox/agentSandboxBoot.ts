@@ -1,5 +1,5 @@
 /**
- * Boots a SuperServe sandbox from the `vibesdk-agent` template and starts
+ * Boots a SuperServe sandbox from the `bun-agent-runtime` template and starts
  * the standalone agent process (agent-runtime/src/main.ts) inside it,
  * detached, for one chat session.
  *
@@ -122,7 +122,7 @@ export async function bootAgentSandbox(opts: {
     const api = opts.api ?? Sandbox;
     const source = opts.env as unknown as Record<string, string | undefined>;
     const bootEnv = readRequiredEnv(source);
-    const templateName = source.SUPERSERVE_AGENT_TEMPLATE ?? 'vibesdk-agent';
+    const templateName = source.SUPERSERVE_AGENT_TEMPLATE ?? 'bun-agent-runtime';
     const baseUrl = source.SUPERSERVE_BASE_URL || undefined;
 
     const envVars: Record<string, string> = {

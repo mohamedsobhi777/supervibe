@@ -11,12 +11,16 @@ export function getPreviewDomain(env: Env): string {
     if (env.CUSTOM_PREVIEW_DOMAIN && env.CUSTOM_PREVIEW_DOMAIN.trim() !== '') {
         return env.CUSTOM_PREVIEW_DOMAIN;
     }
-    return env.CUSTOM_DOMAIN;
+    // `CUSTOM_DOMAIN` is a Cloudflare `vars` binding; on the Vercel/Node path
+    // it is simply absent (undefined) despite the `Env` type declaring it a
+    // string. Normalize to '' so callers (CORS origin building, etc.) never
+    // dereference undefined.
+    return env.CUSTOM_DOMAIN ?? '';
 }
 
 export function isSeparatePreviewDomain(env: Env): boolean {
     const previewDomain = getPreviewDomain(env);
-    return previewDomain.trim() !== '' && previewDomain !== env.CUSTOM_DOMAIN;
+    return previewDomain.trim() !== '' && previewDomain !== (env.CUSTOM_DOMAIN ?? '');
 }
 
 export function buildSpacePreviewPath(spaceName: string, branch: string): string {
