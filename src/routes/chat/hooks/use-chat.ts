@@ -339,6 +339,14 @@ export function useChat({
 			connectionStatus.current = 'connecting';
 			subscribedRef.current = false;
 
+			// Consumers (chat.tsx, useGitHubExport) treat this shim as a
+			// WebSocket and register 'message'/'open' handlers via
+			// addEventListener, so the shim must implement the listener API in
+			// addition to send/readyState — otherwise `.addEventListener is not
+			// a function` throws and crashes the chat view.
+			const messageListeners = new Set<(event: MessageEvent) => void>();
+			const openListeners = new Set<() => void>();
+
 			const shim = {
 				send: (data: string) => {
 					channelRef.current?.send({
@@ -350,6 +358,14 @@ export function useChat({
 				get readyState() {
 					return subscribedRef.current ? 1 : 0;
 				},
+				addEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+					if (type === 'message') messageListeners.add(listener);
+					else if (type === 'open') openListeners.add(listener as unknown as () => void);
+				},
+				removeEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+					if (type === 'message') messageListeners.delete(listener);
+					else if (type === 'open') openListeners.delete(listener as unknown as () => void);
+				},
 			};
 
 			await supabase.realtime.setAuth(token);
@@ -360,6 +376,14 @@ export function useChat({
 
 			channel.on('broadcast', { event: 'message' }, ({ payload }) => {
 				handleWebSocketMessage(shim as unknown as WebSocket, payload as WebSocketMessage);
+				// Also notify addEventListener('message') consumers (e.g. model
+				// config info in chat.tsx), which expect a MessageEvent whose
+				// `.data` is the raw JSON string.
+				if (messageListeners.size > 0) {
+					const raw = typeof payload === 'string' ? payload : JSON.stringify(payload);
+					const messageEvent = { data: raw } as MessageEvent;
+					messageListeners.forEach((listener) => listener(messageEvent));
+				}
 			});
 
 			channel.subscribe((status) => {
@@ -370,6 +394,7 @@ export function useChat({
 					connectionStatus.current = 'connected';
 					subscribedRef.current = true;
 					setWebsocket(shim as unknown as WebSocket);
+					openListeners.forEach((listener) => listener());
 
 					// Always request conversation state explicitly (running/full history)
 					sendWebSocketMessage(shim as unknown as WebSocket, 'get_conversation_state');
