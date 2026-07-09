@@ -1,5 +1,6 @@
 import { ConfigurableSecuritySettings, getConfigurableSecurityDefaults } from "./security";
 import { createLogger } from "../logger";
+import { SystemSettingsService } from "../database/services/SystemSettingsService";
 
 const logger = createLogger('GlobalConfigurableSettings');
 
@@ -106,26 +107,25 @@ export async function getGlobalConfigurableSettings(env: Env): Promise<GlobalCon
     };
     
     try {
-        // Try to fetch override config from KV
-        const storedConfigJson = await env.VibecoderStore.get(CONFIG_KEY);
-        
-        if (!storedConfigJson) {
-            // No stored config, use defaults
+        // Try to fetch override config from system_settings (Postgres)
+        const storedValue = await new SystemSettingsService(env).getByKey(CONFIG_KEY);
+
+        if (!storedValue || !isPlainObject(storedValue)) {
+            // No stored config (or a malformed row), use defaults
             return defaultConfig;
         }
-        
-        // Parse stored configuration
-        const storedConfig: StoredConfig = JSON.parse(storedConfigJson);
-        
+
+        const storedConfig = storedValue as StoredConfig;
+
         // Deep merge configurations (stored config overrides defaults)
         const mergedConfig = deepMerge<GlobalConfigurableSettings>(defaultConfig, storedConfig);
-        
-        logger.info('Loaded configuration with overrides from KV', { storedConfig, mergedConfig });
+
+        logger.info('Loaded configuration with overrides from system_settings', { storedConfig, mergedConfig });
         cachedConfig = mergedConfig;
         return mergedConfig;
-        
+
     } catch (error) {
-        logger.error('Failed to load configuration from KV, using defaults', error);
+        logger.error('Failed to load configuration from system_settings, using defaults', error);
         // On error, fallback to default configuration
         return defaultConfig;
     }
@@ -143,26 +143,25 @@ export async function getUserConfigurableSettings(env: Env, userId: string): Pro
         return conf;
     }
     try {
-        // Try to fetch override config from KV
-        const storedConfigJson = await env.VibecoderStore.get(`user_config:${userId}`);
-        
-        if (!storedConfigJson) {
-            // No stored config, use defaults
+        // Try to fetch override config from system_settings (Postgres)
+        const storedValue = await new SystemSettingsService(env).getByKey(`user_config:${userId}`);
+
+        if (!storedValue || !isPlainObject(storedValue)) {
+            // No stored config (or a malformed row), use defaults
             return globalConfig;
         }
-        
-        // Parse stored configuration
-        const storedConfig: StoredConfig = JSON.parse(storedConfigJson);
-        
+
+        const storedConfig = storedValue as StoredConfig;
+
         // Deep merge configurations (stored config overrides defaults)
         const mergedConfig = deepMerge<GlobalConfigurableSettings>(globalConfig, storedConfig);
-        
-        logger.info(`Loaded configuration with overrides from KV for user ${userId}`, { globalConfig, storedConfig, mergedConfig });
+
+        logger.info(`Loaded configuration with overrides from system_settings for user ${userId}`, { globalConfig, storedConfig, mergedConfig });
         invocationUserCache.set(userId, mergedConfig);
         return mergedConfig;
-        
+
     } catch (error) {
-        logger.error(`Failed to load configuration from KV for user ${userId}, using defaults`, error);
+        logger.error(`Failed to load configuration from system_settings for user ${userId}, using defaults`, error);
         // On error, fallback to default configuration
         return globalConfig;
     }
