@@ -4,7 +4,9 @@ import { AuthUser } from '../../types/auth-types';
 import { extractTokenWithMetadata, extractRequestMetadata } from '../../utils/authUtils';
 import { captureSecurityEvent } from '../../observability/sentry';
 import { KVRateLimitStore } from './KVRateLimitStore';
-import type { RateLimitResult } from './DORateLimitStore';
+import type { RateLimitConfig, RateLimitResult } from './DORateLimitStore';
+import * as pgRateLimitStore from './pgRateLimitStore';
+import { createDatabaseService } from '../../database';
 import { RateLimitExceededError, SecurityError } from 'shared/types/errors';
 import { isDev } from 'worker/utils/envs';
 import { AI_MODEL_CONFIG, AIModels } from 'worker/agents/inferutils/config.types';
@@ -47,7 +49,17 @@ export class RateLimitService {
 
     /**
      * Durable Object-based rate limiting using bucketed sliding window algorithm
-     * Provides better consistency and performance compared to KV
+     * Provides better consistency and performance compared to KV.
+     *
+     * On Workers this reads/writes the `DORateLimitStore` Durable Object. On
+     * Vercel and the standalone agent runtime that binding does not exist
+     * (`env.DORateLimitStore` is `undefined` there - see
+     * `api/[[...route]].ts`'s plain `process.env` cast and
+     * `agent-runtime/src/envAdapter.ts`), so the identical bucketed
+     * sliding-window algorithm runs against Postgres instead via
+     * `pgRateLimitStore`, a verified behavioral drop-in for the DO (see its
+     * module doc) that returns the same `RateLimitResult` shape - no mapping
+     * needed at this boundary.
      */
     private static async enforceDORateLimit(
         env: Env,
@@ -55,20 +67,24 @@ export class RateLimitService {
         config: DORateLimitConfig,
         incrementBy: number = 1
     ): Promise<RateLimitResult> {
+        const bucketConfig: RateLimitConfig = {
+            limit: config.limit,
+            period: config.period,
+            burst: config.burst,
+            burstWindow: config.burstWindow,
+            bucketSize: config.bucketSize,
+            dailyLimit: config.dailyLimit,
+            calendarDaily: config.calendarDaily,
+        };
+
         try {
-            const stub = env.DORateLimitStore.getByName(key);
+            if (env.DORateLimitStore) {
+                const stub = env.DORateLimitStore.getByName(key);
+                return await stub.increment(key, bucketConfig, incrementBy);
+            }
 
-            const result = await stub.increment(key, {
-                limit: config.limit,
-                period: config.period,
-                burst: config.burst,
-                burstWindow: config.burstWindow,
-                bucketSize: config.bucketSize,
-                dailyLimit: config.dailyLimit,
-                calendarDaily: config.calendarDaily,
-            }, incrementBy);
-
-            return result;
+            const db = createDatabaseService(env).db;
+            return await pgRateLimitStore.increment(db, key, bucketConfig, incrementBy);
         } catch (error) {
             this.logger.error('Failed to enforce DO rate limit', {
                 key,
@@ -95,10 +111,14 @@ export class RateLimitService {
         
         switch (rateLimitConfig.store) {
             case RateLimitStore.RATE_LIMITER: {
+                // Cloudflare `RateLimit` binding - absent on Vercel/standalone, so this
+                // throws there and the caller's try/catch fails it open (deliberately
+                // out of scope for the Postgres port - see phase2b-rest task 3 report).
                 const result = await (env[rateLimitConfig.bindingName as keyof Env] as RateLimit).limit({ key });
                 return { success: result.success };
             }
             case RateLimitStore.KV: {
+                // Cloudflare KV binding - same Vercel/standalone fail-open deferral as above.
                 return await KVRateLimitStore.increment(env.VibecoderStore, key, rateLimitConfig as KVRateLimitConfig, incrementBy);
             }
             case RateLimitStore.DURABLE_OBJECT:
@@ -246,7 +266,8 @@ export class RateLimitService {
 
 	/**
 	 * Get remaining credits for LLM calls without incrementing (for pre-flight checks)
-	 * Works in both dev and prod - uses local DO in dev mode
+	 * Works in both dev and prod - uses local DO in dev mode, Postgres on
+	 * Vercel/standalone (see `enforceDORateLimit`'s doc for the store seam).
 	 */
 	static async getRemainingCredits(
 		env: Env,
@@ -256,16 +277,23 @@ export class RateLimitService {
 		const identifier = `user:${userId}`;
 		const key = this.buildRateLimitKey(RateLimitType.LLM_CALLS, identifier);
 		const llmConfig = config[RateLimitType.LLM_CALLS] as DORateLimitConfig;
+		const bucketConfig: RateLimitConfig = {
+			limit: llmConfig.limit,
+			period: llmConfig.period,
+			dailyLimit: llmConfig.dailyLimit,
+			bucketSize: llmConfig.bucketSize,
+			calendarDaily: llmConfig.calendarDaily,
+		};
 
 		try {
-			const stub = env.DORateLimitStore.getByName(key);
-			const remaining = await stub.getRemainingLimit(key, {
-				limit: llmConfig.limit,
-				period: llmConfig.period,
-				dailyLimit: llmConfig.dailyLimit,
-				bucketSize: llmConfig.bucketSize,
-				calendarDaily: llmConfig.calendarDaily,
-			});
+			let remaining: number;
+			if (env.DORateLimitStore) {
+				const stub = env.DORateLimitStore.getByName(key);
+				remaining = await stub.getRemainingLimit(key, bucketConfig);
+			} else {
+				const db = createDatabaseService(env).db;
+				remaining = await pgRateLimitStore.getRemainingLimit(db, key, bucketConfig);
+			}
 
 			return {
 				remaining,
