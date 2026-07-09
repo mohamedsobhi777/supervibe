@@ -921,6 +921,15 @@ export async function infer<OutputSchema extends z.ZodObject>({
             }),
             tool_choice: 'auto' as const
         } : {};
+        // GPT-5 / o-series reasoning models reject a non-default `temperature`
+        // and the penalty params over chat completions (only temperature=1 is
+        // allowed). Omit them for OpenAI reasoning models so any configured
+        // value is accepted (the API defaults to 1). This keys on the provider,
+        // not on direct-vs-gateway, since OpenAI enforces it either way; other
+        // providers (incl. Google's OpenAI-compat endpoint) accept these params.
+        const openaiReasoningModel = modelConfig.provider === 'openai' && !modelConfig.nonReasoning;
+        const safeTemperature = openaiReasoningModel ? undefined : temperature;
+        const safeFrequencyPenalty = openaiReasoningModel ? undefined : frequency_penalty;
         let response: OpenAI.ChatCompletion | OpenAI.ChatCompletionChunk | Stream<OpenAI.ChatCompletionChunk>;
         try {
             // Call OpenAI API with proper structured output format
@@ -933,8 +942,8 @@ export async function infer<OutputSchema extends z.ZodObject>({
                 max_completion_tokens: maxTokens || 150000,
                 stream: stream ? true : false,
                 reasoning_effort: modelConfig.nonReasoning ? undefined : reasoning_effort,
-                temperature,
-                frequency_penalty,
+                temperature: safeTemperature,
+                frequency_penalty: safeFrequencyPenalty,
             }, {
                 signal: abortSignal,
                 headers: {

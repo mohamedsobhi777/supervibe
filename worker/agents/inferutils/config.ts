@@ -117,67 +117,86 @@ const PLATFORM_AGENT_CONFIG: AgentConfig = {
 };
 
 //======================================================================================
-// Default Gemini-only config (most likely used in your deployment)
+// Default OpenAI-only config (used when PLATFORM_MODEL_PROVIDERS is not set)
 //======================================================================================
-/* These are the default out-of-the box gemini-only models used when PLATFORM_MODEL_PROVIDERS is not set */
+/*
+ * Out-of-the-box config for a single OpenAI API key: gpt-5 for the heavy
+ * reasoning/codegen roles, gpt-5-mini for the lighter/faster ones, with the
+ * other GPT-5 tier as the fallback so a single OPENAI_API_KEY covers every call.
+ * `temperature: 1` is OpenAI's default and the only value gpt-5 reasoning models
+ * accept over chat completions (core.ts also drops non-default temperature for
+ * OpenAI reasoning models, so tuning it here is safe for other providers too).
+ * To use a different provider, point these at that provider's models (and set
+ * its API key) — the direct-routing in core.ts handles google-ai-studio,
+ * anthropic, openai, grok, and openrouter without a gateway.
+ */
+const SHARED_OPENAI_IMPLEMENTATION_CONFIG = {
+    reasoning_effort: 'medium' as const,
+    max_tokens: 48000,
+    temperature: 1,
+    fallbackModel: AIModels.OPENAI_5_MINI,
+};
+
 const DEFAULT_AGENT_CONFIG: AgentConfig = {
     ...COMMON_AGENT_CONFIGS,
+    // COMMON_AGENT_CONFIGS.templateSelection points at Gemini/Grok; override to
+    // OpenAI so an OpenAI-only key works end to end.
     templateSelection: {
-        name: AIModels.GEMINI_2_5_FLASH_LITE,
+        name: AIModels.OPENAI_5_MINI,
         max_tokens: 2000,
-        fallbackModel: AIModels.GEMINI_2_5_FLASH,
-        temperature: 0.6,
+        temperature: 1,
+        fallbackModel: AIModels.OPENAI_5,
     },
     blueprint: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
+        name: AIModels.OPENAI_5,
         reasoning_effort: 'high',
-        max_tokens: 64000,
-        fallbackModel: AIModels.GEMINI_2_5_PRO,
+        max_tokens: 32000,
         temperature: 1,
+        fallbackModel: AIModels.OPENAI_5_MINI,
     },
     projectSetup: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
-        ...SHARED_IMPLEMENTATION_CONFIG,
+        name: AIModels.OPENAI_5_MINI,
+        ...SHARED_OPENAI_IMPLEMENTATION_CONFIG,
     },
     phaseGeneration: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
-        ...SHARED_IMPLEMENTATION_CONFIG,
+        name: AIModels.OPENAI_5,
+        ...SHARED_OPENAI_IMPLEMENTATION_CONFIG,
     },
     firstPhaseImplementation: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
-        ...SHARED_IMPLEMENTATION_CONFIG,
+        name: AIModels.OPENAI_5,
+        ...SHARED_OPENAI_IMPLEMENTATION_CONFIG,
     },
     phaseImplementation: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
-        ...SHARED_IMPLEMENTATION_CONFIG,
+        name: AIModels.OPENAI_5,
+        ...SHARED_OPENAI_IMPLEMENTATION_CONFIG,
     },
     conversationalResponse: {
-        name: AIModels.GEMINI_2_5_FLASH,
+        name: AIModels.OPENAI_5_MINI,
         reasoning_effort: 'low',
         max_tokens: 4000,
-        temperature: 0,
-        fallbackModel: AIModels.GEMINI_2_5_PRO,
+        temperature: 1,
+        fallbackModel: AIModels.OPENAI_5,
     },
     deepDebugger: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
+        name: AIModels.OPENAI_5,
         reasoning_effort: 'high',
         max_tokens: 8000,
         temperature: 1,
-        fallbackModel: AIModels.GEMINI_2_5_FLASH,
+        fallbackModel: AIModels.OPENAI_5_MINI,
     },
     fileRegeneration: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
+        name: AIModels.OPENAI_5_MINI,
         reasoning_effort: 'low',
         max_tokens: 32000,
         temperature: 1,
-        fallbackModel: AIModels.GEMINI_2_5_FLASH,
+        fallbackModel: AIModels.OPENAI_5,
     },
     agenticProjectBuilder: {
-        name: AIModels.GEMINI_3_FLASH_PREVIEW,
-        reasoning_effort: 'high',
+        name: AIModels.OPENAI_5,
+        reasoning_effort: 'medium',
         max_tokens: 8000,
         temperature: 1,
-        fallbackModel: AIModels.GEMINI_2_5_FLASH,
+        fallbackModel: AIModels.OPENAI_5_MINI,
     },
 };
 
