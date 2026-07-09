@@ -309,6 +309,10 @@ export function useChat({
 			connectionStatus.current = 'failed';
 			logger.error('❌ Realtime channel connection failed:', reason);
 
+			// `websocket_failed` is not in isConversationalMessage's allowlist, so
+			// the chat-thread message below never renders; surface a toast so the
+			// failure is never silently swallowed.
+			toast.error('Connection to the agent was lost. Please refresh the page to try again.');
 			sendMessage(createAIMessage('websocket_failed', `🚨 Connection to the agent was lost.\n\n❌ Reason: ${reason}\n\n🔄 Please refresh the page to try again.`));
 
 			onDebugMessage?.('error',
