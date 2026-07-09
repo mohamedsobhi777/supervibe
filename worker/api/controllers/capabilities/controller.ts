@@ -13,6 +13,7 @@ import type { CapabilitiesData } from './types';
 import type { FeatureDefinition, PlatformCapabilities } from '../../../agents/core/features/types';
 import { DEFAULT_FEATURE_DEFINITIONS } from '../../../agents/core/features';
 import { createLogger } from '../../../logger';
+import { resolvePlatformCapabilities } from './resolvePlatformCapabilities';
 
 const logger = createLogger('CapabilitiesController');
 
@@ -32,7 +33,12 @@ export class CapabilitiesController extends BaseController {
 		_ctx: ExecutionContext,
 		_context: RouteContext,
 	): Promise<ControllerResponse<ApiResponse<CapabilitiesData>>> {
-		const config = env.PLATFORM_CAPABILITIES;
+		// env.PLATFORM_CAPABILITIES is typed as a pre-parsed object (Cloudflare
+		// `vars` bindings arrive JSON-parsed), but on the Vercel Node path
+		// (api/[[...route]].ts) env is built from `process.env` with no JSON
+		// parsing, so the same field is a raw JSON string at runtime. Resolve
+		// defensively instead of trusting the static type.
+		const config = resolvePlatformCapabilities(env.PLATFORM_CAPABILITIES);
 
 		// Build feature list by merging defaults with enabled status from config
 		const features: FeatureDefinition[] = [
