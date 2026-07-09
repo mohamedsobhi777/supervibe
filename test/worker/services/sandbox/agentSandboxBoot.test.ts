@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bootAgentSandbox, getAgentPreviewUrl } from 'worker/services/sandbox/agentSandboxBoot';
+import { strToU8, zipSync } from 'fflate';
+import { bootAgentSandbox, extractSandboxGitObjects, getAgentPreviewUrl } from 'worker/services/sandbox/agentSandboxBoot';
 import type { CommandOptions, CommandResult, ConnectionOptions, Sandbox, SandboxCreateOptions } from '@superserve/sdk';
 
 const BASE_ENV = {
@@ -197,6 +198,50 @@ describe('bootAgentSandbox', () => {
         expect(fake.createCalls[0].fromTemplate).toBe('custom-agent-template');
     });
 
+    it('defaults timeoutSeconds to a generous 4h inactivity window', async () => {
+        const fake = makeFakeApi();
+
+        await bootAgentSandbox({
+            sessionId: 'session-9',
+            agentId: 'agent-9',
+            sessionJwt: 'jwt-9',
+            env: BASE_ENV,
+            api: fake,
+        });
+
+        expect(fake.createCalls[0].timeoutSeconds).toBe(60 * 60 * 4);
+    });
+
+    it('honors a SUPERSERVE_SANDBOX_TIMEOUT_SECONDS override', async () => {
+        const fake = makeFakeApi();
+        const env = { ...BASE_ENV, SUPERSERVE_SANDBOX_TIMEOUT_SECONDS: '600' } as unknown as Env;
+
+        await bootAgentSandbox({
+            sessionId: 'session-10',
+            agentId: 'agent-10',
+            sessionJwt: 'jwt-10',
+            env,
+            api: fake,
+        });
+
+        expect(fake.createCalls[0].timeoutSeconds).toBe(600);
+    });
+
+    it('falls back to the default timeoutSeconds when the override is not a valid positive number', async () => {
+        const fake = makeFakeApi();
+        const env = { ...BASE_ENV, SUPERSERVE_SANDBOX_TIMEOUT_SECONDS: 'not-a-number' } as unknown as Env;
+
+        await bootAgentSandbox({
+            sessionId: 'session-11',
+            agentId: 'agent-11',
+            sessionJwt: 'jwt-11',
+            env,
+            api: fake,
+        });
+
+        expect(fake.createCalls[0].timeoutSeconds).toBe(60 * 60 * 4);
+    });
+
     it('throws listing SUPERSERVE_API_KEY when it is missing', async () => {
         const fake = makeFakeApi();
         const env = { ...BASE_ENV, SUPERSERVE_API_KEY: undefined } as unknown as Env;
@@ -288,5 +333,101 @@ describe('getAgentPreviewUrl', () => {
 
         await expect(getAgentPreviewUrl('sandbox-1', env, fake)).rejects.toThrow('SUPERSERVE_API_KEY');
         expect(fake.connectCalls).toHaveLength(0);
+    });
+});
+
+interface FakeDownloadApi {
+    connect: (sandboxId: string, options?: ConnectionOptions) => Promise<Sandbox>;
+    connectCalls: RecordedConnectCall[];
+    downloadDirCalls: string[];
+}
+
+function makeFakeDownloadApi(zipBytes: Uint8Array): FakeDownloadApi {
+    const connectCalls: RecordedConnectCall[] = [];
+    const downloadDirCalls: string[] = [];
+
+    const fakeSandbox = {
+        files: {
+            downloadDir: async (path: string): Promise<Uint8Array> => {
+                downloadDirCalls.push(path);
+                return zipBytes;
+            },
+        },
+    } as unknown as Sandbox;
+
+    return {
+        connect: async (sandboxId: string, options?: ConnectionOptions): Promise<Sandbox> => {
+            connectCalls.push({ sandboxId, options });
+            return fakeSandbox;
+        },
+        connectCalls,
+        downloadDirCalls,
+    };
+}
+
+describe('extractSandboxGitObjects', () => {
+    it('downloads /workspace/.git and returns file entries matching the SqliteFS.exportGitObjects() path contract', async () => {
+        const zipBytes = zipSync({
+            '.git/HEAD': strToU8('ref: refs/heads/main\n'),
+            '.git/refs/heads/main': strToU8('a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\n'),
+            '.git/objects/ab/cdef0123456789': new Uint8Array([1, 2, 3, 4]),
+            // Directory entries (trailing slash, no bytes) must be excluded,
+            // mirroring SqliteFS.exportGitObjects()'s `is_dir = 0` filter.
+            '.git/objects/ab/': new Uint8Array(0),
+        });
+        const fake = makeFakeDownloadApi(zipBytes);
+        const env = { SUPERSERVE_API_KEY: 'ss_test_key' } as unknown as Env;
+
+        const result = await extractSandboxGitObjects('sandbox-abc123', env, fake);
+
+        expect(fake.connectCalls).toEqual([
+            { sandboxId: 'sandbox-abc123', options: { apiKey: 'ss_test_key', baseUrl: undefined } },
+        ]);
+        expect(fake.downloadDirCalls).toEqual(['/workspace/.git']);
+
+        const paths = result.map((entry) => entry.path).sort();
+        expect(paths).toEqual(['.git/HEAD', '.git/objects/ab/cdef0123456789', '.git/refs/heads/main']);
+
+        const head = result.find((entry) => entry.path === '.git/HEAD');
+        expect(head).toBeDefined();
+        expect(new TextDecoder().decode(head!.data)).toBe('ref: refs/heads/main\n');
+
+        const blob = result.find((entry) => entry.path === '.git/objects/ab/cdef0123456789');
+        expect(blob!.data).toEqual(new Uint8Array([1, 2, 3, 4]));
+    });
+
+    it('passes baseUrl through when SUPERSERVE_BASE_URL is configured', async () => {
+        const fake = makeFakeDownloadApi(zipSync({}));
+        const env = {
+            SUPERSERVE_API_KEY: 'ss_test_key',
+            SUPERSERVE_BASE_URL: 'https://api.superserve.example',
+        } as unknown as Env;
+
+        await extractSandboxGitObjects('sandbox-xyz', env, fake);
+
+        expect(fake.connectCalls).toEqual([
+            {
+                sandboxId: 'sandbox-xyz',
+                options: { apiKey: 'ss_test_key', baseUrl: 'https://api.superserve.example' },
+            },
+        ]);
+    });
+
+    it('returns an empty array when the sandbox .git directory has no files', async () => {
+        const fake = makeFakeDownloadApi(zipSync({}));
+        const env = { SUPERSERVE_API_KEY: 'ss_test_key' } as unknown as Env;
+
+        const result = await extractSandboxGitObjects('sandbox-empty', env, fake);
+
+        expect(result).toEqual([]);
+    });
+
+    it('throws listing SUPERSERVE_API_KEY when it is missing, without connecting', async () => {
+        const fake = makeFakeDownloadApi(zipSync({}));
+        const env = {} as unknown as Env;
+
+        await expect(extractSandboxGitObjects('sandbox-1', env, fake)).rejects.toThrow('SUPERSERVE_API_KEY');
+        expect(fake.connectCalls).toHaveLength(0);
+        expect(fake.downloadDirCalls).toHaveLength(0);
     });
 });

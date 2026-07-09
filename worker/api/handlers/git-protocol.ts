@@ -2,13 +2,16 @@
  * Git Protocol Handler
  * Handles git clone/fetch operations via HTTP protocol
  * Route: /apps/:id.git/info/refs and /apps/:id.git/git-upload-pack
- * 
- * Architecture: Export git objects from DO, build repo in worker to save DO memory
+ *
+ * Architecture: Export git objects from the agent's Superserve sandbox
+ * (real git on disk at /workspace/.git), build repo in worker to save memory
  */
-import { getAgentStub } from '../../agents';
 import { createLogger } from '../../logger';
 import { GitCloneService } from '../../agents/git/git-clone-service';
 import { AppService } from '../../database/services/AppService';
+import { AgentSessionService } from '../../database/services/AgentSessionService';
+import { AgentStateService } from '../../database/services/AgentStateService';
+import { extractSandboxGitObjects } from '../../services/sandbox/agentSandboxBoot';
 import { JWTUtils } from '../../utils/jwtUtils';
 import { GitCache } from './git-cache';
 
@@ -157,14 +160,25 @@ async function handleInfoRefs(
             });
         }
         
-        const agentStub = await getAgentStub(env, appId);
-        if (!agentStub || !(await agentStub.isInitialized())) {
+        // Export git objects from the agent's Superserve sandbox (real git
+        // on disk) rather than the retired Durable Object SQLite git
+        // filesystem. templateDetails is intentionally null: the sandbox's
+        // git history already includes the template baseline as its
+        // initial commit (agent-runtime/src/standaloneAgent.ts's gitInit),
+        // so GitCloneService.buildRepository does not need a synthesized
+        // template base commit for this runtime.
+        const session = await new AgentSessionService(env).getAgentSession(appId);
+        if (!session?.sandboxId) {
             return new Response('Repository not found', { status: 404 });
         }
-        
-        // Export git objects from DO
-        const { gitObjects, query, hasCommits, templateDetails } = await agentStub.exportGitObjects();
-        
+        const [gitObjects, agentState] = await Promise.all([
+            extractSandboxGitObjects(session.sandboxId, env),
+            new AgentStateService(env).getAgentState(appId),
+        ]);
+        const query = agentState?.query ?? '';
+        const templateDetails = null;
+        const hasCommits = gitObjects.length > 0;
+
         if (!hasCommits) {
             // Return empty advertisement for repos with no commits
             return new Response('001e# service=git-upload-pack\n0000', {
@@ -255,14 +269,25 @@ async function handleUploadPack(
             });
         }
         
-        const agentStub = await getAgentStub(env, appId);
-        if (!agentStub || !(await agentStub.isInitialized())) {
+        // Export git objects from the agent's Superserve sandbox (real git
+        // on disk) rather than the retired Durable Object SQLite git
+        // filesystem. templateDetails is intentionally null: the sandbox's
+        // git history already includes the template baseline as its
+        // initial commit (agent-runtime/src/standaloneAgent.ts's gitInit),
+        // so GitCloneService.buildRepository does not need a synthesized
+        // template base commit for this runtime.
+        const session = await new AgentSessionService(env).getAgentSession(appId);
+        if (!session?.sandboxId) {
             return new Response('Repository not found', { status: 404 });
         }
-        
-        // Export git objects from DO
-        const { gitObjects, query, hasCommits, templateDetails } = await agentStub.exportGitObjects();
-        
+        const [gitObjects, agentState] = await Promise.all([
+            extractSandboxGitObjects(session.sandboxId, env),
+            new AgentStateService(env).getAgentState(appId),
+        ]);
+        const query = agentState?.query ?? '';
+        const templateDetails = null;
+        const hasCommits = gitObjects.length > 0;
+
         if (!hasCommits) {
             return new Response('No commits to pack', { status: 404 });
         }

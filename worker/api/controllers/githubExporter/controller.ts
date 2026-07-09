@@ -5,7 +5,10 @@ import { GitHubExporterOAuthProvider } from '../../../services/oauth/github-expo
 import { getAgentStub } from '../../../agents';
 import { createLogger } from '../../../logger';
 import { AppService } from '../../../database/services/AppService';
-import { ExportResult } from 'worker/agents/core/types';
+import { AgentSessionService } from '../../../database/services/AgentSessionService';
+import { AgentStateService } from '../../../database/services/AgentStateService';
+import { extractSandboxGitObjects } from '../../../services/sandbox/agentSandboxBoot';
+import { GitHubPushResponse } from '../../../services/sandbox/sandboxTypes';
 import { SignJWT, jwtVerify, JWTPayload } from 'jose';
 import { validateRedirectUrl } from '../../../utils/authUtils';
 
@@ -186,18 +189,44 @@ export class GitHubExporterController extends BaseController {
 
             // Push files to repository
             this.logger.info('Pushing files to repository', { agentId, repositoryUrl });
-            
-            const agentStub = await getAgentStub(env, agentId);
-            const pushResult: ExportResult = await agentStub.exportProject({
-                kind: 'github',
-                github: {
-                    cloneUrl,
-                    repositoryHtmlUrl: repositoryUrl,
-                    isPrivate,
-                    token,
-                    email: 'vibesdk-bot@cloudflare.com',
-                    username
+
+            // Source gitObjects from the agent's Superserve sandbox (real
+            // git on disk) rather than the retired Durable Object RPC
+            // (agentStub.exportProject). templateDetails is intentionally
+            // null: the sandbox's git history already includes the template
+            // baseline as its initial commit
+            // (agent-runtime/src/standaloneAgent.ts's gitInit), so
+            // GitHubService.exportToGitHub does not need a synthesized
+            // template base commit for this runtime.
+            const session = await new AgentSessionService(env).getAgentSession(agentId);
+            if (!session?.sandboxId) {
+                return { success: false, error: 'Agent sandbox not found for this app' };
+            }
+            const [gitObjects, agentState] = await Promise.all([
+                extractSandboxGitObjects(session.sandboxId, env),
+                new AgentStateService(env).getAgentState(agentId),
+            ]);
+
+            let appCreatedAt: Date | undefined;
+            try {
+                const appService = new AppService(env);
+                const app = await appService.getAppDetails(agentId);
+                if (app?.createdAt) {
+                    appCreatedAt = new Date(app.createdAt);
                 }
+            } catch (error) {
+                this.logger.warn('Failed to get app createdAt', { error, agentId });
+            }
+
+            const pushResult: GitHubPushResponse = await GitHubService.exportToGitHub({
+                gitObjects,
+                templateDetails: null,
+                appQuery: agentState?.query ?? '',
+                appCreatedAt,
+                token,
+                repositoryUrl,
+                username,
+                email: 'vibesdk-bot@cloudflare.com',
             });
 
             if (!pushResult?.success) {
@@ -512,9 +541,24 @@ export class GitHubExporterController extends BaseController {
                 );
             }
 
-            // Export git objects and template details
-            const { gitObjects, query, templateDetails } = await agentStub.exportGitObjects();
-            
+            // Export git objects from the agent's Superserve sandbox (real
+            // git on disk) rather than the retired Durable Object RPC
+            // (agentStub.exportGitObjects). templateDetails is intentionally
+            // null - see the comment in createRepositoryAndPush above.
+            const session = await new AgentSessionService(env).getAgentSession(body.agentId);
+            if (!session?.sandboxId) {
+                return GitHubExporterController.createErrorResponse<never>(
+                    'Agent sandbox not found for this app',
+                    404
+                );
+            }
+            const [gitObjects, agentState] = await Promise.all([
+                extractSandboxGitObjects(session.sandboxId, env),
+                new AgentStateService(env).getAgentState(body.agentId),
+            ]);
+            const query = agentState?.query ?? '';
+            const templateDetails = null;
+
             // Get app createdAt
             let appCreatedAt: Date | undefined;
             try {

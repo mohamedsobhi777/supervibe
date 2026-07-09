@@ -15,9 +15,22 @@
  */
 
 import { Sandbox } from '@superserve/sdk';
+import { unzipSync } from 'fflate';
 
 const AGENT_PORT = 8080;
 const START_TIMEOUT_MS = 15_000;
+
+/**
+ * Default sandbox inactivity timeout: generous enough that an in-progress
+ * generation or an open preview tab survives normal idle gaps, but bounded
+ * so an abandoned chat session's sandbox does not run (and bill) forever -
+ * `Sandbox.create` had no `timeoutSeconds` set at all before this, so
+ * nothing ever reclaimed a forgotten sandbox. This ties into the
+ * option-(c) "preview is sandbox-scoped" limitation: once this timeout
+ * elapses, `getAgentPreviewUrl`'s `Sandbox.connect` auto-resumes a paused
+ * sandbox, but a fully reclaimed one is gone for good.
+ */
+const DEFAULT_SANDBOX_TIMEOUT_SECONDS = 60 * 60 * 4;
 
 /** Hostnames the agent process legitimately needs: package registries, source hosts, AI providers, and the Supabase project itself. */
 const DEFAULT_EGRESS_ALLOW = [
@@ -44,6 +57,19 @@ function supabaseHostFrom(supabaseUrl: string): string {
 
 function buildEgressAllowlist(supabaseUrl: string): string[] {
     return [...new Set([...DEFAULT_EGRESS_ALLOW, supabaseHostFrom(supabaseUrl)])];
+}
+
+/**
+ * Resolves the sandbox inactivity timeout from an optional
+ * `SUPERSERVE_SANDBOX_TIMEOUT_SECONDS` override, falling back to
+ * `DEFAULT_SANDBOX_TIMEOUT_SECONDS` when it is unset or not a valid
+ * positive number.
+ */
+function resolveSandboxTimeoutSeconds(source: Record<string, string | undefined>): number {
+    const raw = source.SUPERSERVE_SANDBOX_TIMEOUT_SECONDS;
+    if (!raw) return DEFAULT_SANDBOX_TIMEOUT_SECONDS;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SANDBOX_TIMEOUT_SECONDS;
 }
 
 interface RequiredBootEnv {
@@ -121,6 +147,7 @@ export async function bootAgentSandbox(opts: {
         fromTemplate: templateName,
         envVars,
         network: { allowOut: buildEgressAllowlist(bootEnv.supabaseUrl) },
+        timeoutSeconds: resolveSandboxTimeoutSeconds(source),
         metadata: {
             vibesdk_kind: 'agent',
             vibesdk_session: opts.sessionId,
@@ -159,4 +186,47 @@ export async function getAgentPreviewUrl(
 
     const sandbox = await (api ?? Sandbox).connect(sandboxId, { apiKey, baseUrl });
     return sandbox.getPreviewUrl(AGENT_PORT);
+}
+
+/**
+ * Extracts the generated project's `.git` directory from a Superserve
+ * sandbox as `{ path, data }` byte pairs, matching the path contract
+ * `SqliteFS.exportGitObjects()` (worker/agents/git/fs-adapter.ts) produced
+ * from the retired Durable Object SQLite git filesystem: every path is
+ * relative and `.git`-prefixed (`.git/HEAD`, `.git/objects/ab/cdef...`,
+ * `.git/refs/heads/main`, `.git/packed-refs`, ...), with directory entries
+ * excluded. Callers that used to destructure `hasCommits` off the DO RPC's
+ * result can derive it as `gitObjects.length > 0`, exactly as
+ * codingAgent.ts's `exportGitObjects()` did.
+ *
+ * `sandbox.files.downloadDir` returns a ZIP whose entries are prefixed with
+ * the downloaded directory's own base name - for `/workspace/.git` that
+ * base name is `.git`, so the zip's entry paths already line up with the
+ * retired DO export's paths with no rewriting needed. Directory entries
+ * (fflate represents these as a trailing-slash key with no bytes) are
+ * dropped, mirroring `exportGitObjects()`'s `is_dir = 0` filter.
+ *
+ * Propagates failures as-is (sandbox unreachable, `.git` missing, etc.) -
+ * exactly as the retired `agentStub.exportGitObjects()` RPC could throw -
+ * so callers keep handling failure the same way they already did.
+ */
+export async function extractSandboxGitObjects(
+    sandboxId: string,
+    env: Env,
+    api?: Pick<typeof Sandbox, 'connect'>,
+): Promise<Array<{ path: string; data: Uint8Array }>> {
+    const source = env as unknown as Record<string, string | undefined>;
+    const apiKey = source.SUPERSERVE_API_KEY;
+    if (!apiKey) {
+        throw new Error('Missing required environment variable: SUPERSERVE_API_KEY');
+    }
+    const baseUrl = source.SUPERSERVE_BASE_URL || undefined;
+
+    const sandbox = await (api ?? Sandbox).connect(sandboxId, { apiKey, baseUrl });
+    const zipBytes = await sandbox.files.downloadDir('/workspace/.git');
+    const unzipped = unzipSync(zipBytes);
+
+    return Object.entries(unzipped)
+        .filter(([path]) => !path.endsWith('/'))
+        .map(([path, data]) => ({ path, data }));
 }
