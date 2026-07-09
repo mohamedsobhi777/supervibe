@@ -27,7 +27,7 @@ try {
 	const res = await client.chat.completions.create({
 		model,
 		messages: [{ role: 'user', content: 'Reply with exactly the word: OK' }],
-		max_completion_tokens: 16,
+		max_completion_tokens: 256,
 		// No temperature/frequency_penalty: gpt-5 reasoning models only accept defaults.
 	});
 	const text = res.choices?.[0]?.message?.content ?? '';

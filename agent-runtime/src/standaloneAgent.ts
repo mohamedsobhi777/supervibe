@@ -276,14 +276,16 @@ export class StandaloneAgent implements AgentHost {
         const persistedBehavior = this.state.behaviorType;
         const isValidPersisted =
             persistedBehavior === 'phasic' || persistedBehavior === 'agentic' || persistedBehavior === 'think';
-        const explicitlyRequestedThink = initArgs.behaviorType === 'think' || (isValidPersisted && persistedBehavior === 'think');
         let behaviorType: BehaviorType =
             initArgs.behaviorType ?? (isValidPersisted ? persistedBehavior : getBehaviorTypeForProject(projectType));
 
+        // The standalone runtime has no dedicated 'think' behavior yet; map it to
+        // the agentic loop, which is its phase-1 equivalent (the frontend labels
+        // 'think' the "adaptive agentic coding loop"). Applies whether think was
+        // requested explicitly — the frontend's default "Agent" mode sends
+        // behaviorType=think — or resolved by default. Previously an explicit
+        // think request threw here and crashed the agent on boot.
         if (behaviorType === 'think') {
-            if (explicitlyRequestedThink) {
-                throw new Error('think behavior is not supported in the standalone agent runtime (phase 1)');
-            }
             behaviorType = 'agentic';
         }
 
