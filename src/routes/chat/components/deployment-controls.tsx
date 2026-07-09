@@ -155,8 +155,8 @@ export function DeploymentControls({
 					icon: null,
 					titleColor: "text-text-tertiary dark:text-text-tertiary",
 					subtitleColor: "text-text-tertiary/80 dark:text-text-tertiary/70",
-					title: "Deploy to Cloudflare",
-					subtitle: "Deploy will be enabled after Phase 1 is implemented",
+					title: "Live Preview",
+					subtitle: "Preview link will be available after Phase 1 is implemented",
 					buttonDisabled: true,
 					buttonVariant: "secondary" as const,
 					buttonClass: "bg-bg-3 dark:bg-bg-3 text-text-tertiary dark:text-text-tertiary border-muted dark:border-muted cursor-not-allowed"
@@ -169,8 +169,8 @@ export function DeploymentControls({
 					icon: <Zap className="w-2.5 h-2.5 text-white" />,
 					titleColor: "text-text-primary dark:text-text-primary",
 					subtitleColor: "text-text-tertiary dark:text-text-tertiary",
-					title: "Ready to Deploy",
-					subtitle: "It's Free! Deploys to Cloudflare Workers for Platform",
+					title: "Preview Ready",
+					subtitle: "Get a shareable link to your live app preview",
 					buttonDisabled: false,
 					buttonVariant: "primary" as const,
 					buttonClass: "bg-accent text-white border-orange-500 dark:border-orange-600 hover:scale-105"
@@ -183,8 +183,8 @@ export function DeploymentControls({
 					icon: <Loader className="w-2.5 h-2.5 text-white animate-spin" />,
 					titleColor: "text-blue-900 dark:text-blue-100",
 					subtitleColor: "text-blue-600 dark:text-blue-300",
-					title: "Deploying to Cloudflare",
-					subtitle: "Please wait while your application is being deployed...",
+					title: "Preparing Preview",
+					subtitle: "Please wait while your live preview is prepared...",
 					buttonDisabled: true,
 					buttonVariant: "primary" as const,
 					buttonClass: "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white border-blue-500 dark:border-blue-600 scale-105 shadow-lg dark:shadow-blue-900/50"
@@ -197,8 +197,8 @@ export function DeploymentControls({
 					icon: <Loader className="w-2.5 h-2.5 text-white animate-spin" />,
 					titleColor: "text-blue-900 dark:text-blue-100",
 					subtitleColor: "text-blue-600 dark:text-blue-300",
-					title: "Redeploying to Cloudflare",
-					subtitle: "Please wait while your application is being redeployed...",
+					title: "Refreshing Preview",
+					subtitle: "Please wait while your live preview is refreshed...",
 					buttonDisabled: true,
 					buttonVariant: "primary" as const,
 					buttonClass: "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700 text-white border-blue-500 dark:border-blue-600 scale-105 shadow-lg dark:shadow-blue-900/50"
@@ -211,8 +211,8 @@ export function DeploymentControls({
 					icon: <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>,
 					titleColor: "text-red-900 dark:text-red-100",
 					subtitleColor: "text-red-600 dark:text-red-300",
-					title: "❌ Deployment Failed",
-					subtitle: "Error in deployment, please try again",
+					title: "❌ Preview Unavailable",
+					subtitle: "Error preparing preview, please try again",
 					buttonDisabled: !isPhase1Complete,
 					buttonVariant: "primary" as const,
 					buttonClass: isPhase1Complete 
@@ -276,12 +276,12 @@ export function DeploymentControls({
 							{isCurrentlyDeploying ? (
 								<>
 									<Loader className="w-4 h-4 mr-2 animate-spin" />
-									{currentState === DeploymentState.REDEPLOYING ? 'Redeploying...' : 'Deploying...'}
+									{currentState === DeploymentState.REDEPLOYING ? 'Refreshing...' : 'Preparing...'}
 								</>
 							) : (
 								<>
 									<Zap className="w-4 h-4 mr-2" />
-									Deploy to Cloudflare
+									Open Preview
 								</>
 							)}
 						</Button>
@@ -304,10 +304,10 @@ export function DeploymentControls({
 						{/* Success Header */}
 						<div className="flex-1">
 							<div className="text-sm font-semibold text-green-900 dark:text-green-100">
-								🎉 Successfully Deployed!
+								🎉 Your Preview is Live!
 							</div>
 							<div className="text-xs text-green-700 dark:text-green-300 mt-0.5">
-								Your application is now live on Cloudflare Workers
+								Your application is live and ready to share
 							</div>
 						</div>
 					</div>
@@ -414,12 +414,12 @@ export function DeploymentControls({
 								{isDeploying ? (
 									<>
 										<Loader className="w-4 h-4 mr-2 animate-spin" />
-										Redeploying...
+										Refreshing...
 									</>
 								) : (
 									<>
 										<Zap className="w-4 h-4 mr-2" />
-										Redeploy
+										Refresh Preview
 									</>
 								)}
 							</Button>

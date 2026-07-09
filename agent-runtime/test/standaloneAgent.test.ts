@@ -93,3 +93,81 @@ describe('StandaloneAgent.boot', () => {
         ).rejects.toThrow(/think behavior is not supported/);
     });
 });
+
+describe('StandaloneAgent.deployProject', () => {
+    // "Deploy" has no Cloudflare Workers-for-Platforms primitive in the
+    // standalone runtime (LocalSandboxService.deployToCloudflareWorkers() is
+    // an always-failing stub). deployProject() must resolve to the sandbox
+    // preview URL instead of routing through that stub, and must never
+    // report success with a false "deployed to Cloudflare" claim.
+
+    it('fails gracefully, without any Cloudflare-flavored claim, when no sandbox preview exists yet', async () => {
+        const f = fakes();
+        const agent = await StandaloneAgent.boot({
+            sessionId: 's-4',
+            agentId: 'a-4',
+            workspaceDir: '/tmp/vibesdk-test-s4',
+            env: buildEnvAdapter({}),
+            transport: f.transport as never,
+            stateStore: f.stateStore as never,
+            conversationStore: f.conversationStore as never,
+            sandbox: { shutdownInstance: async () => ({ success: true }) } as never,
+        });
+
+        // Isolate deployProject()'s error handling from the real
+        // isPreviewable()/template-details chain deployToSandbox() sits
+        // behind (that chain has its own coverage elsewhere) — a bare-booted
+        // agent with no files genuinely rejects with this same message via
+        // BaseCodingBehavior.deployToSandbox(), reproduced here directly.
+        agent.getBehavior().deployToSandbox = async () => {
+            throw new Error('Project is not previewable');
+        };
+
+        const result = await agent.deployProject();
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/not previewable/i);
+
+        const started = f.broadcasts.find((b) => b.type === 'cloudflare_deployment_started');
+        const failed = f.broadcasts.find((b) => b.type === 'cloudflare_deployment_error');
+        expect(started).toBeDefined();
+        expect(failed).toBeDefined();
+        expect(String(failed?.error)).not.toMatch(/cloudflare/i);
+    });
+
+    it('resolves a successful deploy to the live sandbox preview URL rather than a Cloudflare Workers claim', async () => {
+        const f = fakes();
+        const agent = await StandaloneAgent.boot({
+            sessionId: 's-5',
+            agentId: 'a-5',
+            workspaceDir: '/tmp/vibesdk-test-s5',
+            env: buildEnvAdapter({}),
+            transport: f.transport as never,
+            stateStore: f.stateStore as never,
+            conversationStore: f.conversationStore as never,
+            sandbox: { shutdownInstance: async () => ({ success: true }) } as never,
+        });
+
+        // Isolate deployProject()'s URL-resolution behavior from the
+        // sandbox/template pipeline behind deployToSandbox() — that pipeline
+        // is exercised by DeploymentManager's own tests. Here we only assert
+        // deployProject() honestly reports whatever preview URL
+        // deployToSandbox() resolves to, via the existing broadcast wire
+        // format the frontend already listens for.
+        agent.getBehavior().deployToSandbox = async () => ({
+            runId: 'sandbox-1',
+            previewURL: 'https://sandbox-1.preview.example.com',
+            tunnelURL: undefined,
+        });
+
+        const result = await agent.deployProject();
+
+        expect(result.success).toBe(true);
+        expect(result.url).toBe('https://sandbox-1.preview.example.com');
+
+        const completed = f.broadcasts.find((b) => b.type === 'cloudflare_deployment_completed');
+        expect(completed).toBeDefined();
+        expect(completed?.deploymentUrl).toBe('https://sandbox-1.preview.example.com');
+        expect(JSON.stringify(completed)).not.toMatch(/permanently|cloudflare workers/i);
+    });
+});

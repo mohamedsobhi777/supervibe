@@ -465,8 +465,62 @@ export class StandaloneAgent implements AgentHost {
         }
     }
 
-    deployProject(options?: DeployOptions): Promise<DeployResult> {
-        return this.objective.deploy(options);
+    /**
+     * Resolves "deploy" to the current sandbox preview URL instead of a
+     * Cloudflare Workers-for-Platforms dispatch. The standalone runtime has
+     * no publish/deploy primitive beyond the sandbox that already backs the
+     * live preview — `LocalSandboxService.deployToCloudflareWorkers()` is an
+     * always-failing stub (phase 1). This intentionally bypasses
+     * `ProjectObjective.deploy()`, which is shared with the Workers
+     * `CodeGeneratorAgent` (where `SandboxSdkClient.deployToCloudflareWorkers()`
+     * is a real implementation that must keep working unchanged), instead of
+     * routing through it. It reuses the existing `cloudflare_deployment_*`
+     * broadcast types the frontend already listens for — only the resolved
+     * URL and copy are honest now.
+     */
+    async deployProject(options?: DeployOptions): Promise<DeployResult> {
+        const target = options?.target ?? 'platform';
+        const instanceId = this.state.sandboxInstanceId ?? '';
+
+        this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_STARTED, {
+            message: 'Preparing your live preview...',
+            instanceId,
+        });
+
+        try {
+            const preview = await this.behavior.deployToSandbox();
+            if (!preview?.previewURL) {
+                const error = 'Sandbox preview is not available';
+                this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR, {
+                    message: `Deployment failed: ${error}`,
+                    instanceId,
+                    error,
+                });
+                return { success: false, target, error };
+            }
+
+            this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_COMPLETED, {
+                message: 'Your app is live',
+                instanceId: preview.runId ?? instanceId,
+                deploymentUrl: preview.previewURL,
+            });
+
+            return {
+                success: true,
+                target,
+                url: preview.previewURL,
+                metadata: { sandboxInstanceId: preview.runId },
+            };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown deployment error';
+            this.logger().error('Deployment failed', error);
+            this.broadcast(WebSocketMessageResponses.CLOUDFLARE_DEPLOYMENT_ERROR, {
+                message: 'Deployment failed',
+                instanceId,
+                error: message,
+            });
+            return { success: false, target, error: message };
+        }
     }
 
     handleVaultUnlocked(): void {

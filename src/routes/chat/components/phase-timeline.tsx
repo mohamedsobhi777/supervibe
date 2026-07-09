@@ -537,15 +537,15 @@ export function PhaseTimeline({
                                         }}
                                         disabled={!!isDeploying}
                                         className="ml-2 flex items-center gap-1.5 px-2.5 py-1 bg-accent hover:bg-accent/90 disabled:bg-accent/50 text-white rounded-full text-xs font-medium transition-colors disabled:cursor-not-allowed"
-                                        title={isDeploying ? 'Deploying...' : 'Deploy to Cloudflare'}
-                                        aria-label={isDeploying ? 'Deploying' : 'Deploy to Cloudflare'}
+                                        title={isDeploying ? 'Opening preview...' : 'Open preview'}
+                                        aria-label={isDeploying ? 'Opening preview' : 'Open preview'}
                                     >
                                         {isDeploying ? (
                                             <StatusLoader size="sm" color="accent" />
                                         ) : (
                                             <Zap className="w-3 h-3" />
                                         )}
-                                        <span className="hidden sm:inline">{isDeploying ? 'Deploying...' : 'Deploy'}</span>
+                                        <span className="hidden sm:inline">{isDeploying ? 'Opening...' : 'Preview'}</span>
                                     </button>
                                 )}
                             </motion.div>
@@ -633,7 +633,7 @@ export function PhaseTimeline({
 														) : (
 															<Zap className="w-3 h-3" />
 														)}
-														{isDeploying ? 'Deploying...' : 'Deploy to Cloudflare'}
+														{isDeploying ? 'Opening preview...' : 'Open Preview'}
 													</button>
 												)}
 											</div>
