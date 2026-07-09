@@ -302,6 +302,36 @@ export const agentSessions = pgTable('agent_sessions', {
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Structural shape of the agent runtime's `AgentState` JSON blob that the
+ * read side actually needs (`AgentStateService.getAgentState`, used by
+ * `AppViewController.getAppDetails` to build `agentSummary`). Deliberately
+ * narrower than the full `AgentState` union in
+ * `worker/agents/core/state.ts` - reaching into that file's type graph
+ * (blueprints, phase schemas, sandbox types) from this otherwise
+ * dependency-free schema file, which drizzle-kit also loads directly under
+ * Node.js for migration generation (see drizzle.config.*.ts), is more
+ * coupling than this read path needs.
+ */
+export interface AgentStateJson {
+    query?: string;
+    generatedFilesMap?: Record<string, unknown>;
+}
+
+/**
+ * Agent State table - Drizzle mapping for the `agent_state` table created
+ * in the same migration as `agent_sessions` above. One row per session,
+ * holding the agent runtime's full state JSON; the standalone agent
+ * runtime (agent-runtime/) writes it via supabase-js under RLS.
+ * `AgentStateService` is the read-side counterpart used on the
+ * service-role Postgres connection (bypasses RLS).
+ */
+export const agentState = pgTable('agent_state', {
+    sessionId: text('session_id').primaryKey().references(() => agentSessions.sessionId, { onDelete: 'cascade' }),
+    state: jsonb('state').$type<AgentStateJson>().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ========================================
 // TYPE EXPORTS FOR APPLICATION USE
 // ========================================
@@ -335,3 +365,11 @@ export type NewSystemSetting = typeof systemSettings.$inferInsert;
 
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type NewAgentSession = typeof agentSessions.$inferInsert;
+
+// Named `*Row` rather than the bare `AgentState`/`NewAgentState` the rest of
+// this file's naming convention would suggest, because `AgentState` already
+// names an unrelated (and much larger) type in
+// `worker/agents/core/state.ts` - the agent runtime's in-memory state union,
+// as opposed to this table's on-disk row shape.
+export type AgentStateRow = typeof agentState.$inferSelect;
+export type NewAgentStateRow = typeof agentState.$inferInsert;

@@ -376,4 +376,102 @@ describe('AppService (postgres)', () => {
             expect(calls).toHaveLength(0);
         });
     });
+
+    describe('getSingleAppWithFavoriteStatus (isFavorite now wired to the favorites table)', () => {
+        it('returns isFavorite=true when a favorites row exists for (userId, appId)', async () => {
+            const app = fakeApp({ id: 'app-1' });
+            const { service, calls } = createAppServiceWithFakeDb([[app], [{ appId: 'app-1' }]]);
+
+            const result = await service.getSingleAppWithFavoriteStatus('app-1', 'user-1');
+
+            expect(result).toMatchObject({ id: 'app-1', isFavorite: true });
+            expect(calls).toHaveLength(2);
+            expect(calls[1].entry).toBe('select');
+            const favoritesFrom = calls[1].chainCalls.find((c) => c.method === 'from');
+            expect(tableName(favoritesFrom?.args[0])).toBe('favorites');
+        });
+
+        it('returns isFavorite=false when no favorites row exists', async () => {
+            const app = fakeApp({ id: 'app-1' });
+            const { service } = createAppServiceWithFakeDb([[app], []]);
+
+            const result = await service.getSingleAppWithFavoriteStatus('app-1', 'user-1');
+
+            expect(result).toMatchObject({ id: 'app-1', isFavorite: false });
+        });
+
+        it('returns null without querying favorites when the app is not found', async () => {
+            const { service, calls } = createAppServiceWithFakeDb([[]]);
+
+            const result = await service.getSingleAppWithFavoriteStatus('missing-app', 'user-1');
+
+            expect(result).toBeNull();
+            expect(calls).toHaveLength(1);
+        });
+    });
+
+    describe('getAppDetails (starCount/userStarred/userFavorited now wired to stars/favorites)', () => {
+        it('returns the real starCount and false userStarred/userFavorited for an anonymous viewer', async () => {
+            const app = fakeApp({ id: 'app-1' });
+            const { service, calls } = createAppServiceWithFakeDb([
+                [{ app, userName: 'Alice', userAvatar: null, starCount: 3 }],
+            ]);
+
+            const result = await service.getAppDetails('app-1');
+
+            expect(result).toMatchObject({
+                id: 'app-1',
+                starCount: 3,
+                userStarred: false,
+                userFavorited: false,
+                viewCount: 0,
+            });
+            // No userId -> addUserSpecificAppData short-circuits with no
+            // additional stars/favorites queries.
+            expect(calls).toHaveLength(1);
+        });
+
+        it('returns real userStarred/userFavorited for an authenticated viewer', async () => {
+            const app = fakeApp({ id: 'app-1' });
+            const { service, calls } = createAppServiceWithFakeDb([
+                [{ app, userName: 'Alice', userAvatar: null, starCount: 5 }],
+                [{ appId: 'app-1' }], // getUserStarredAppIds
+                [], // getUserFavoriteAppIds
+            ]);
+
+            const result = await service.getAppDetails('app-1', 'user-1');
+
+            expect(result).toMatchObject({
+                id: 'app-1',
+                starCount: 5,
+                userStarred: true,
+                userFavorited: false,
+            });
+            expect(calls).toHaveLength(3);
+            const starsFrom = calls[1].chainCalls.find((c) => c.method === 'from');
+            expect(tableName(starsFrom?.args[0])).toBe('stars');
+            const favoritesFrom = calls[2].chainCalls.find((c) => c.method === 'from');
+            expect(tableName(favoritesFrom?.args[0])).toBe('favorites');
+        });
+
+        it('returns null without querying stars/favorites when the app is not found', async () => {
+            const { service, calls } = createAppServiceWithFakeDb([[]]);
+
+            const result = await service.getAppDetails('missing-app', 'user-1');
+
+            expect(result).toBeNull();
+            expect(calls).toHaveLength(1);
+        });
+
+        it('defaults starCount to 0 when the subquery returns no value', async () => {
+            const app = fakeApp({ id: 'app-1' });
+            const { service } = createAppServiceWithFakeDb([
+                [{ app, userName: null, userAvatar: null, starCount: 0 }],
+            ]);
+
+            const result = await service.getAppDetails('app-1');
+
+            expect(result).toMatchObject({ starCount: 0 });
+        });
+    });
 });

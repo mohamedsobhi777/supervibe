@@ -2,10 +2,12 @@
 import { BaseController } from '../baseController';
 import { ApiResponse, ControllerResponse } from '../types';
 import type { RouteContext } from '../../types/route-context';
-import { getAgentStubLightweight } from '../../../agents';
 import { AppService } from '../../../database/services/AppService';
-import { 
-    AppDetailsData, 
+import { AgentStateService } from '../../../database/services/AgentStateService';
+import { AgentSessionService } from '../../../database/services/AgentSessionService';
+import { getAgentPreviewUrl } from '../../../services/sandbox/agentSandboxBoot';
+import {
+    AppDetailsData,
     AppStarToggleData,
     GitCloneTokenData,
 } from './types';
@@ -52,27 +54,41 @@ export class AppViewController extends BaseController {
                 await appService.recordAppView(appId, 'anonymous-' + Date.now());
             }
 
-            // Try to fetch current agent state to get latest generated code
+            // Agent summary (original query + latest generated code), read
+            // from the agent runtime's Postgres-persisted state
+            // (agent_state.state, written by agent-runtime/ on every state
+            // change) rather than a Durable Object RPC - the DO has no
+            // equivalent on this runtime, so this replaces the old
+            // getAgentStubLightweight(...).getSummary() call.
             let agentSummary: AgentSummary | null = null;
-            let previewUrl: string = '';
-            
-            try {
-                // Use lightweight stub for read-only operations (faster - skips template loading)
-                const agentStub = await getAgentStubLightweight(env, appResult.id);
-                agentSummary = await agentStub.getSummary();
-
-                previewUrl = await agentStub.getPreviewUrlCache();
-            } catch (agentError) {
-                // If agent doesn't exist or error occurred, fall back to database stored files
-                this.logger.warn('Could not fetch agent state, using stored files:', agentError);
+            const agentState = await new AgentStateService(env).getAgentState(appId);
+            if (agentState) {
+                agentSummary = {
+                    query: agentState.query ?? '',
+                    generatedCode: Object.values(agentState.generatedFilesMap ?? {}) as AgentSummary['generatedCode'],
+                };
             }
 
-            const cloudflareUrl = appResult.deploymentId ? buildUserWorkerUrl(env, appResult.deploymentId) : '';
+            // Preview URL: best-effort resolution from the agent's sandbox,
+            // mirroring CodingAgentController.connectToAgent - a missing
+            // session or an unreachable sandbox degrades to null instead of
+            // failing the whole request.
+            let previewUrl: string | null = null;
+            const session = await new AgentSessionService(env).getAgentSession(appId);
+            if (session?.sandboxId) {
+                try {
+                    previewUrl = await getAgentPreviewUrl(session.sandboxId, env);
+                } catch (agentError) {
+                    this.logger.warn('Failed to resolve agent preview url, falling back to deployment url', { appId, agentError });
+                }
+            }
+
+            const cloudflareUrl = appResult.deploymentId ? buildUserWorkerUrl(env, appResult.deploymentId) : null;
 
             const responseData: AppDetailsData = {
                 ...appResult, // Spread all EnhancedAppData fields including stats
-                cloudflareUrl: cloudflareUrl,
-                previewUrl: previewUrl || cloudflareUrl,
+                cloudflareUrl,
+                previewUrl: previewUrl ?? cloudflareUrl,
                 user: {
                     id: appResult.userId!,
                     displayName: appResult.userName || 'Unknown',

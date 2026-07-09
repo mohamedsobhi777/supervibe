@@ -24,6 +24,7 @@ export type {
     RateLimitBucket, NewRateLimitBucket,
     SystemSetting, NewSystemSetting,
     AgentSession, NewAgentSession,
+    AgentStateJson, AgentStateRow, NewAgentStateRow,
 } from './schema';
 
 

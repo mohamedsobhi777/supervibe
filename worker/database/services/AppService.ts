@@ -409,11 +409,9 @@ export class AppService extends BaseService {
     }
 
     /**
-     * Get single app with favorite status for user.
-     *
-     * Follow-up: `favorites` table now exists (see `getUserFavoriteAppIds`)
-     * but is not yet wired into this read path - `isFavorite` is always
-     * false until it is.
+     * Get single app with favorite status for user. Real `isFavorite`,
+     * sourced from the `favorites` table via `getUserFavoriteAppIds` (the
+     * same helper the list queries use).
      */
     async getSingleAppWithFavoriteStatus(
         appId: string,
@@ -430,11 +428,11 @@ export class AppService extends BaseService {
             return null;
         }
 
-        this.logger.debug('getSingleAppWithFavoriteStatus: isFavorite not wired yet (follow-up)', { appId, userId });
+        const userFavorites = await this.getUserFavoriteAppIds(userId, [appId]);
 
         const result = {
             ...app,
-            isFavorite: false,
+            isFavorite: userFavorites.has(appId),
             updatedAtFormatted: formatRelativeTime(app.updatedAt)
         };
         const [enriched] = await this.enrichScreenshotUrls([result]);
@@ -498,11 +496,14 @@ export class AppService extends BaseService {
     /**
      * Get app details with stats.
      *
-     * Deferred in 2a: viewCount depends on the still-deferred appViews
-     * table. Follow-up: starCount/userStarred/userFavorited depend on
-     * stars/favorites, which now exist (see `getStarCountSubquery`,
-     * `getUserStarredAppIds`, `getUserFavoriteAppIds`) but are not yet
-     * wired into this read path - all four stay stubbed to zero/false.
+     * `starCount` is real (via `getStarCountSubquery`, a correlated
+     * per-row subquery - same pattern `executeRankedQuery` uses).
+     * `userStarred`/`userFavorited` are real for an authenticated viewer
+     * (via `addUserSpecificAppData`, the same helper the list queries
+     * use); an anonymous viewer (no `userId`) gets `false` for both,
+     * matching that helper's short-circuit. `viewCount` stays stubbed to
+     * zero - it depends on the still-deferred `appViews` table (see
+     * `recordAppView`).
      */
     async getAppDetails(appId: string, userId?: string): Promise<EnhancedAppData | null> {
         const appRows = await this.database
@@ -510,6 +511,7 @@ export class AppService extends BaseService {
                 app: schema.apps,
                 userName: schema.users.displayName,
                 userAvatar: schema.users.avatarUrl,
+                starCount: this.getStarCountSubquery(),
             })
             .from(schema.apps)
             .leftJoin(schema.users, eq(schema.apps.userId, schema.users.id))
@@ -522,16 +524,15 @@ export class AppService extends BaseService {
         }
 
         const app = appResult.app;
-
-        this.logger.debug('getAppDetails: social stats deferred in 2a', { appId, userId });
+        const { userStars, userFavorites } = await this.addUserSpecificAppData([appId], userId);
 
         const result = {
             ...app,
             userName: appResult.userName,
             userAvatar: appResult.userAvatar,
-            starCount: 0,
-            userStarred: false,
-            userFavorited: false,
+            starCount: appResult.starCount || 0,
+            userStarred: userStars.has(appId),
+            userFavorited: userFavorites.has(appId),
             viewCount: 0
         };
         const [enriched] = await this.enrichScreenshotUrls([result]);

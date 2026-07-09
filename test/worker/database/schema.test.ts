@@ -170,4 +170,22 @@ describe('schema (pg-core)', () => {
             expect(findColumn(schema.agentSessions, 'created_at').getSQLType()).toBe('timestamp with time zone');
         });
     });
+
+    describe('agentState', () => {
+        it('maps the Phase-1 agent_state columns to their snake_case Postgres names and types', () => {
+            expect(getTableConfig(schema.agentState).name).toBe('agent_state');
+            expect(findColumn(schema.agentState, 'session_id').getSQLType()).toBe('text');
+            expect(findColumn(schema.agentState, 'state').getSQLType()).toBe('jsonb');
+            expect(findColumn(schema.agentState, 'updated_at').getSQLType()).toBe('timestamp with time zone');
+        });
+
+        it('has session_id as its primary key, referencing agent_sessions', () => {
+            expect(schema.agentState.sessionId.primary).toBe(true);
+            expect(findColumn(schema.agentState, 'session_id').notNull).toBe(true);
+        });
+
+        it('requires the state jsonb column', () => {
+            expect(schema.agentState.state.notNull).toBe(true);
+        });
+    });
 });
