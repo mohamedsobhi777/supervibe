@@ -203,7 +203,7 @@ export class CodingAgentController extends BaseController {
      * resolves the session's Realtime channel + current preview URL so the
      * browser can rejoin an in-progress or completed generation.
      */
-    static async connectToAgent(request: Request, env: Env, _: ExecutionContext, context: RouteContext): Promise<Response> {
+    static async connectToAgent(_request: Request, env: Env, _: ExecutionContext, context: RouteContext): Promise<Response> {
         try {
             const agentId = context.pathParams.agentId;
             if (!agentId) {
