@@ -128,13 +128,18 @@ async function main(): Promise<void> {
     // instance, but the agent can only be constructed after the transport
     // is ready (StandaloneAgent.boot() takes a live AgentTransport). A
     // mutable ref bridges the two: onClientMessage forwards to whatever
-    // `agentRef.current` holds, and boot() assigns it once the agent
-    // exists. Messages arriving in the (sub-millisecond) window between
-    // transport.ready() and the boot() assignment are not expected in
-    // practice — the client only starts sending after observing this same
-    // process's `agent_connected` broadcast, which boot() emits after the
-    // assignment below — but the ref is still checked defensively.
+    // `agentRef.current` holds, and boot() assigns it once the agent exists.
+    //
+    // Messages arriving between transport.ready() and the boot() assignment
+    // are NOT sub-millisecond and NOT rare: the browser broadcasts
+    // `generate_all` as soon as it observes channel `SUBSCRIBED`
+    // (src/routes/chat/hooks/use-chat.ts), which is the transport-ready point
+    // here — well before StandaloneAgent.boot() (a multi-second, network-bound
+    // clone + template load) resolves. Dropping those messages means
+    // generation never starts. So pre-boot client messages are buffered and
+    // replayed, in arrival order, the instant the agent is available.
     const agentRef: { current: StandaloneAgent | undefined } = { current: undefined };
+    const pendingClientMessages: string[] = [];
 
     const transport = createRealtimeTransport({
         channelFactory: (topic) =>
@@ -144,7 +149,7 @@ async function main(): Promise<void> {
         sessionId: cfg.sessionId,
         onClientMessage: (raw: string) => {
             if (!agentRef.current) {
-                console.error(`Dropped client message: agent not yet booted for session ${cfg.sessionId}`);
+                pendingClientMessages.push(raw);
                 return;
             }
             void agentRef.current.handleClientMessage(raw);
@@ -165,7 +170,14 @@ async function main(): Promise<void> {
         initArgs,
         selfPreviewBaseUrl: cfg.selfPreviewBaseUrl,
     });
+    // Assign then drain synchronously (no await between): messages buffered
+    // before boot replay first, and any arriving after this block dispatch
+    // directly via the callback above — single-threaded, so no interleaving
+    // and no lost or reordered messages.
     agentRef.current = agent;
+    for (const raw of pendingClientMessages.splice(0)) {
+        void agent.handleClientMessage(raw);
+    }
 
     const heartbeat = setInterval(() => {
         void supabase

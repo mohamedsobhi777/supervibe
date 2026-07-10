@@ -10,6 +10,7 @@ import { SecurityError, SecurityErrorType } from 'shared/types/errors';
 import { getGlobalConfigurableSettings } from './config';
 import { AuthConfig, setAuthLevel } from './middleware/auth/routeAuth';
 import { setRuntimeEnv } from './utils/runtimeEnv';
+import { createHttpTemplateSource, setTemplateSource } from './services/sandbox/templateSource';
 // import { initHonoSentry } from './observability/sentry';
 
 export function createApp(env: Env): Hono<AppEnv> {
@@ -19,6 +20,19 @@ export function createApp(env: Env): Hono<AppEnv> {
     // Vercel/Node (no `cloudflare:workers`) this is the only place it happens,
     // since createApp() is the sole entrypoint on that path.
     setRuntimeEnv(env);
+
+    // Storage seam (templates): off Cloudflare there is no TEMPLATES_BUCKET R2
+    // binding, so the default R2TemplateSource cannot read the catalog. When
+    // the binding is absent and a TEMPLATES_BASE_URL is configured, read
+    // templates over HTTP instead — the worker sibling of the same switch
+    // agent-runtime/src/main.ts installs for the sandbox process. Real Workers
+    // keep the default R2 source. (TEMPLATES_BASE_URL is a plain var, not a
+    // generated Env binding, so it is read through an indexed cast — same
+    // precedent as SUPABASE_DB_URL in worker/database/pgConnection.ts.)
+    const templatesBaseUrl = (env as unknown as Record<string, unknown>).TEMPLATES_BASE_URL;
+    if (!env.TEMPLATES_BUCKET && typeof templatesBaseUrl === 'string' && templatesBaseUrl.length > 0) {
+        setTemplateSource(createHttpTemplateSource(templatesBaseUrl));
+    }
 
     const app = new Hono<AppEnv>();
 

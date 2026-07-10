@@ -12,7 +12,6 @@ import {
     UpdateAppVisibilityData,
     AppDeleteData
 } from './types';
-// import { withCache } from '../../../services/cache/wrapper';
 import { createLogger } from '../../../logger';
 
 export class AppController extends BaseController {

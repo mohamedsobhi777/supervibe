@@ -200,6 +200,22 @@ export type SupabaseStorageClientFactory = (
 const defaultStorageClientFactory: SupabaseStorageClientFactory = (url, serviceRoleKey) => createClient(url, serviceRoleKey);
 
 /**
+ * True when image bytes should be stored in / read from Supabase Storage
+ * rather than R2. Covers both non-Cloudflare runtimes:
+ *   - the standalone agent runtime, where `isStandaloneRuntime(env)` is true
+ *     and `env.TEMPLATES_BUCKET` is a truthy poison proxy (so a bare
+ *     `!env.TEMPLATES_BUCKET` would miss it);
+ *   - the Vercel/Node worker, where `isStandaloneRuntime(env)` is false but
+ *     the R2 binding is genuinely absent (`env.TEMPLATES_BUCKET` undefined).
+ * Real Cloudflare Workers have the binding and are not standalone, so they
+ * keep using R2 — same binding-presence seam as the rate limiter
+ * (worker/services/rate-limit/rateLimits.ts).
+ */
+function shouldUseSupabaseStorage(env: Env): boolean {
+    return isStandaloneRuntime(env) || !env.TEMPLATES_BUCKET;
+}
+
+/**
  * Reads SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY without widening the
  * generated `Env` type — same indexed-cast precedent as `getSupabaseDbUrl`
  * (worker/database/pgConnection.ts) and `getConfigValue`
@@ -269,9 +285,10 @@ export async function uploadImage(
         }
     }
 
-    // Storage backend: Supabase Storage on the standalone runtime, R2 on
-    // Workers — same seam as buildDrizzle() in worker/database/pgConnection.ts.
-    const { r2Key, url } = isStandaloneRuntime(env)
+    // Storage backend: Supabase Storage off Cloudflare (standalone runtime and
+    // the Vercel/Node worker), R2 on real Workers — same seam as buildDrizzle()
+    // in worker/database/pgConnection.ts.
+    const { r2Key, url } = shouldUseSupabaseStorage(env)
         ? await uploadImageToSupabaseStorage(env, image, type, bytes, storageClientFactory)
         : await uploadImageToR2(env, image, type, cfImagesUrl, bytes);
     const hash = await hashPromise;
@@ -358,7 +375,7 @@ export async function getScreenshotBytes(
     key: string,
     clientFactory: SupabaseStorageClientFactory = defaultStorageClientFactory,
 ): Promise<StoredImageBytes | null> {
-    if (isStandaloneRuntime(env)) {
+    if (shouldUseSupabaseStorage(env)) {
         const { url, serviceRoleKey } = getSupabaseStorageConfig(env);
         const client = clientFactory(url, serviceRoleKey);
         const { data, error } = await client.storage.from(SCREENSHOTS_BUCKET).download(key);

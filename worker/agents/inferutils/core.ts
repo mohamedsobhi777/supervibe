@@ -25,6 +25,7 @@ import { getMaxToolCallingDepth, MAX_LLM_MESSAGES } from '../constants';
 import { executeToolCallsWithDependencies } from './toolExecution';
 import { CompletionDetector } from './completionDetection';
 import { createLogger } from '../../logger';
+import { isStandaloneRuntime } from '../../utils/runtimeMode';
 
 const logger = createLogger('Inference');
 
@@ -485,10 +486,18 @@ export async function getConfigurationForModel(
     // Vercel/sandbox stack, where the binding path in buildGatewayUrl would
     // throw. A per-request user gateway (BYOK) or SDK `aiGatewayOverride` still
     // takes precedence and falls through to the gateway path below.
+    //
+    // `!env.AI` catches the Vercel worker (binding genuinely absent), but NOT
+    // the standalone agent runtime, where `env.AI` is a truthy poison Proxy
+    // (agent-runtime/src/envAdapter.ts) — reading `env.AI.gateway(...)` there
+    // throws. `isStandaloneRuntime(env)` covers that case so the direct path is
+    // taken instead of the throwing binding path. Both remain gated on
+    // `!hasConfiguredGatewayUrl`, so an explicit `CLOUDFLARE_AI_GATEWAY_URL`
+    // still wins even off-Cloudflare (that path never dereferences `env.AI`).
     const noPlatformGateway =
         !useUserGateway &&
         !runtimeOverrides?.aiGatewayOverride?.baseUrl &&
-        !env.AI &&
+        (isStandaloneRuntime(env) || !env.AI) &&
         !hasConfiguredGatewayUrl(env);
 
     let providerForcedOverride: AIGatewayProviders | undefined;

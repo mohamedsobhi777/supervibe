@@ -137,6 +137,17 @@ function workersEnv(bucket: FakeR2Bucket, vars: Record<string, unknown> = {}): E
     } as unknown as Env;
 }
 
+function vercelWorkerEnv(vars: Record<string, unknown> = {}): Env {
+    // Vercel/Node worker: not the standalone runtime (no RUNTIME_MODE marker)
+    // AND no TEMPLATES_BUCKET R2 binding — so image storage must fall back to
+    // Supabase, same as the standalone runtime does.
+    return {
+        SUPABASE_URL: 'https://project-ref.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+        ...vars,
+    } as unknown as Env;
+}
+
 describe('uploadImageToSupabaseStorage', () => {
     it('uploads to the screenshots bucket under the ${type}/${id}/${filename} key with upsert', async () => {
         const { factory, uploadCalls, factoryCalls } = makeFakeStorageFactory();
@@ -195,6 +206,18 @@ describe('uploadImage', () => {
         expect(result.r2Key).toBe('screenshots/app-123/latest.png');
         // No CUSTOM_DOMAIN in the standalone env fixture -> relative fallback.
         expect(result.publicUrl).toBe('/api/screenshots/app-123/latest.png');
+    });
+
+    it('resolves to Supabase Storage on the Vercel worker when the R2 binding is absent', async () => {
+        const { factory, uploadCalls } = makeFakeStorageFactory();
+        const env = vercelWorkerEnv();
+        const image = makeImage();
+
+        const result = await uploadImage(env, image, ImageType.SCREENSHOTS, factory);
+
+        expect(uploadCalls).toHaveLength(1);
+        expect(uploadCalls[0].bucket).toBe('screenshots');
+        expect(result.r2Key).toBe('screenshots/app-123/latest.png');
     });
 
     it('still resolves to R2 on Workers when the TEMPLATES_BUCKET binding is present', async () => {
@@ -256,6 +279,19 @@ describe('getScreenshotBytes', () => {
         const result = await getScreenshotBytes(env, 'screenshots/missing/latest.png');
 
         expect(result).toBeNull();
+    });
+
+    it('reads from Supabase Storage on the Vercel worker when the R2 binding is absent', async () => {
+        const original = new Uint8Array([7, 8, 9]);
+        const blob = new Blob([original], { type: 'image/png' });
+        const { factory, downloadCalls } = makeFakeStorageFactory({ downloadResult: { data: blob, error: null } });
+        const env = vercelWorkerEnv();
+
+        const result = await getScreenshotBytes(env, 'screenshots/app-123/latest.png', factory);
+
+        expect(downloadCalls).toEqual([{ bucket: 'screenshots', path: 'screenshots/app-123/latest.png' }]);
+        expect(result).not.toBeNull();
+        expect(Array.from(result!.bytes)).toEqual(Array.from(original));
     });
 });
 

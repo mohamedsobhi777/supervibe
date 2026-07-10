@@ -69,7 +69,7 @@ describe('bootAgentSandbox', () => {
         expect(fake.createCalls).toHaveLength(1);
         const options = fake.createCalls[0];
         expect(options.name).toBe('agent-session-1');
-        expect(options.fromTemplate).toBe('vibesdk-agent');
+        expect(options.fromTemplate).toBe('bun-agent-runtime');
         expect(options.baseUrl).toBeUndefined();
         expect(options.metadata).toEqual({ vibesdk_kind: 'agent', vibesdk_session: 'session-1' });
     });
