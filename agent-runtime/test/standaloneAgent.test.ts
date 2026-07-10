@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
+import { mkdirSync } from 'node:fs';
 import { StandaloneAgent } from '../src/standaloneAgent';
 import { buildEnvAdapter } from '../src/envAdapter';
+import { setTemplateSource, resetTemplateSourceForTests } from 'worker/services/sandbox/templateSource';
 
 function fakes() {
     const broadcasts: Array<Record<string, unknown>> = [];
@@ -76,21 +78,54 @@ describe('StandaloneAgent.boot', () => {
         expect(f.persisted.length).toBe(before + 1);
     });
 
-    it('rejects think behavior init', async () => {
+    it('initializes the project from a boot query so generation can start', async () => {
         const f = fakes();
-        await expect(
-            StandaloneAgent.boot({
-                sessionId: 's-3',
-                agentId: 'a-3',
-                workspaceDir: '/tmp/vibesdk-test-s3',
+        // Empty catalog → resolveTemplateInfo falls back to the from-scratch
+        // baseline, so no template zip needs to be fetched/parsed. The point is
+        // that a boot query now reaches behavior.initialize() and seeds state —
+        // previously the query was dropped and the first generate_all 404'd.
+        setTemplateSource({
+            getCatalog: async () => [],
+            getZip: async () => new ArrayBuffer(0),
+        });
+        mkdirSync('/tmp/vibesdk-test-init', { recursive: true });
+        try {
+            const agent = await StandaloneAgent.boot({
+                sessionId: 's-init',
+                agentId: 'a-init',
+                workspaceDir: '/tmp/vibesdk-test-init',
                 env: buildEnvAdapter({}),
                 transport: f.transport as never,
                 stateStore: f.stateStore as never,
                 conversationStore: f.conversationStore as never,
-                sandbox: {} as never,
-                initArgs: { behaviorType: 'think', query: 'x' },
-            }),
-        ).rejects.toThrow(/think behavior is not supported/);
+                sandbox: { shutdownInstance: async () => ({ success: true }) } as never,
+                initArgs: { query: 'build a todo app' },
+            });
+            expect(agent.state.query).toBe('build a todo app');
+            expect(agent.getBehavior().getBehavior()).toBe('agentic');
+            expect(agent.state.templateName).toBe('scratch');
+        } finally {
+            resetTemplateSourceForTests();
+        }
+    });
+
+    it('maps an explicit think request to the agentic behavior instead of crashing', async () => {
+        const f = fakes();
+        // No query, so this exercises behavior selection only (no project
+        // initialization / template fetch). 'think' has no dedicated standalone
+        // behavior yet; it maps to the agentic loop rather than throwing.
+        const agent = await StandaloneAgent.boot({
+            sessionId: 's-3',
+            agentId: 'a-3',
+            workspaceDir: '/tmp/vibesdk-test-s3',
+            env: buildEnvAdapter({}),
+            transport: f.transport as never,
+            stateStore: f.stateStore as never,
+            conversationStore: f.conversationStore as never,
+            sandbox: { shutdownInstance: async () => ({ success: true }) } as never,
+            initArgs: { behaviorType: 'think' },
+        });
+        expect(agent.getBehavior().getBehavior()).toBe('agentic');
     });
 });
 

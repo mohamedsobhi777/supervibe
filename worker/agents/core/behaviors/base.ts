@@ -217,15 +217,31 @@ export abstract class BaseCodingBehavior<TState extends BaseProjectState>
                 this.templateDetailsCache = createScratchTemplateDetails();
                 return this.templateDetailsCache;
             }
-            this.ensureTemplateDetails();
+            // Best-effort background load; the synchronous throw below is the
+            // signal to callers, which retry once details are cached. Swallow
+            // the rejection so an empty/failed templateName can't surface as an
+            // unhandled rejection that crashes the standalone Bun process.
+            this.ensureTemplateDetails().catch(() => {});
             throw new Error('Template details not loaded. Call ensureTemplateDetails() first.');
         }
         return this.templateDetailsCache;
     }
 
     protected isPreviewable(): boolean {
-        // If there are 'package.json', and 'wrangler.jsonc' files, then it is previewable
-        return this.fileManager.fileExists('package.json') && (this.fileManager.fileExists('wrangler.jsonc') || this.fileManager.fileExists('wrangler.toml'));
+        // A project needs a package.json before it can run at all.
+        if (!this.fileManager.fileExists('package.json')) {
+            return false;
+        }
+        // Sandbox/browser render-mode templates (e.g. the Vite dev server) run
+        // straight from package.json and ship no wrangler config. Only
+        // Cloudflare Workers templates gate previewability on a wrangler file.
+        // Read the cache directly (not getTemplateDetails(), which throws when
+        // unloaded) so this stays side-effect free.
+        const renderMode = this.templateDetailsCache?.renderMode;
+        if (renderMode === 'sandbox' || renderMode === 'browser') {
+            return true;
+        }
+        return this.fileManager.fileExists('wrangler.jsonc') || this.fileManager.fileExists('wrangler.toml');
     }
 
     /**
@@ -619,8 +635,13 @@ export abstract class BaseCodingBehavior<TState extends BaseProjectState>
             return errors;
         } catch (error) {
             this.logger.error("Exception fetching runtime errors:", error);
-            // If fetch fails, initiate redeploy
-            this.deployToSandbox();
+            // If fetch fails, initiate redeploy. Best-effort: swallow the
+            // rejection (e.g. "not previewable" before a template is imported)
+            // so it can't surface as an unhandled rejection that crashes the
+            // standalone Bun process.
+            this.deployToSandbox().catch((deployError) => {
+                this.logger.warn("Background redeploy after runtime-error fetch failed", deployError);
+            });
             const message = "<runtime errors not available at the moment as preview is not deployed>";
             return [{ message, timestamp: new Date().toISOString(), level: 0, rawOutput: message }];
         }

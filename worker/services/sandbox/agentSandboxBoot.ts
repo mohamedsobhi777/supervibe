@@ -188,15 +188,21 @@ export async function bootAgentSandbox(opts: {
         },
     });
 
+    // Public preview URL for the generated app's dev server (AGENT_PORT).
+    // Passed into the agent process as SELF_PREVIEW_BASE_URL so
+    // LocalSandboxService reports the real Superserve URL as the live preview
+    // instead of falling back to http://localhost:8080. Injected as an inline
+    // shell prefix (additive to the create-time env vars, unlike an env option
+    // that could replace them).
+    const previewUrl = sandbox.getPreviewUrl(AGENT_PORT);
+
     // setsid/nohup detaches the agent process from this exec's process
-    // group: boxd SIGKILLs the exec's process group on timeout, and the
-    // agent must outlive this short-lived start command.
+    // group: the sandbox host SIGKILLs the exec's process group on timeout,
+    // and the agent must outlive this short-lived start command.
     await sandbox.commands.run(
-        'cd /opt/vibesdk && setsid nohup bun agent-runtime/src/main.ts > /workspace/agent.log 2>&1 < /dev/null & echo $!',
+        `cd /opt/vibesdk && SELF_PREVIEW_BASE_URL='${previewUrl}' setsid nohup bun agent-runtime/src/main.ts > /workspace/agent.log 2>&1 < /dev/null & echo $!`,
         { timeoutMs: START_TIMEOUT_MS },
     );
-
-    const previewUrl = sandbox.getPreviewUrl(AGENT_PORT);
 
     return { sandboxId: sandbox.id, previewUrl };
 }

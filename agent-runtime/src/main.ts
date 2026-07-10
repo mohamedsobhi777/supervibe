@@ -33,6 +33,17 @@ async function main(): Promise<void> {
     const cfg = parseBootstrapEnv(process.env);
     const env = buildEnvAdapter();
 
+    // A single stray rejection or throw in a background task (e.g. the
+    // behavior's fire-and-forget template load or redeploy) must not take down
+    // the one process that serves this session. Log and keep running instead of
+    // letting the default handler exit.
+    process.on('unhandledRejection', (reason) => {
+        console.error(`Unhandled promise rejection in session ${cfg.sessionId}:`, reason);
+    });
+    process.on('uncaughtException', (error) => {
+        console.error(`Uncaught exception in session ${cfg.sessionId}:`, error);
+    });
+
     // Route worker-tree code (templateSource, sandbox factory, etc.) to the
     // standalone env/template seams instead of Workers bindings.
     setRuntimeEnv(env);

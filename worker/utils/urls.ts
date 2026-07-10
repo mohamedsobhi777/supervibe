@@ -113,6 +113,14 @@ export function migratePreviewUrl(storedUrl: string | undefined, env: Env): stri
         const hostname = url.hostname;
         const currentDomain = getPreviewDomain(env);
 
+        // No custom preview domain configured (e.g. the Superserve/sandbox path,
+        // where the preview host is the provider's own domain). There is nothing
+        // to migrate to, and rebuilding against '' would produce a dangling-dot
+        // host like `https://8080-abc./`. Leave the stored URL untouched.
+        if (!currentDomain || currentDomain.trim() === '') {
+            return storedUrl;
+        }
+
         // Already using current domain
         if (hostname.endsWith(`.${currentDomain}`)) {
             return storedUrl;

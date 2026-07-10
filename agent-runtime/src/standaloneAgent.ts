@@ -34,8 +34,8 @@ import type {
     DeployResult,
     ProjectType,
 } from 'worker/agents/core/types';
-import type { Blueprint } from 'worker/agents/schemas';
-import type { InferenceMetadata } from 'worker/agents/inferutils/config.types';
+import type { Blueprint, TemplateSelection } from 'worker/agents/schemas';
+import type { InferenceContext, InferenceMetadata } from 'worker/agents/inferutils/config.types';
 import type { ConversationMessage, ConversationState } from 'worker/agents/inferutils/common';
 import type { ImageAttachment } from 'worker/types/image-attachment';
 import type { WebSocketMessageData, WebSocketMessageType } from 'worker/api/websocketTypes';
@@ -51,6 +51,9 @@ import type { BaseCodingBehavior } from 'worker/agents/core/behaviors/base';
 import { PhasicCodingBehavior } from 'worker/agents/core/behaviors/phasic';
 import { AgenticCodingBehavior } from 'worker/agents/core/behaviors/agentic';
 import { getBehaviorTypeForProject } from 'worker/agents/core/features';
+import { BaseSandboxService } from 'worker/services/sandbox/BaseSandboxService';
+import { selectTemplate } from 'worker/agents/planning/templateSelector';
+import { createScratchTemplateDetails } from 'worker/agents/utils/templates';
 import { ProjectObjective } from 'worker/agents/core/objectives/base';
 import { LocalConversationMessageLoader, type ConversationMessageLoader } from 'worker/agents/core/conversation/MessageLoader';
 
@@ -248,22 +251,18 @@ export class StandaloneAgent implements AgentHost {
 
     /**
      * Replicates codingAgent.ts's onStart behavior-selection (lines 178-241)
-     * minus the `think` branch (rejected outright) and the D1
-     * ModelConfigService read (stubbed with an empty user-config record so
-     * AGENT_CONFIG defaults apply).
+     * minus the D1 ModelConfigService read (stubbed with an empty user-config
+     * record so AGENT_CONFIG defaults apply), and with `think` mapped to the
+     * agentic loop rather than run as its own behavior.
      *
-     * Deviation from the literal reference formula, documented here because
-     * it affects which requests reject: `getBehaviorTypeForProject('app')`
-     * currently resolves to `'think'` (worker/agents/core/features/types.ts),
-     * so a bare boot with no persisted state and no initArgs — which the
-     * reference's own onStart would happily hand to a ThinkCodingBehavior on
-     * Workers — would otherwise reject here even though nobody asked for
-     * `think`. Only an EXPLICIT request for `think` (via initArgs.behaviorType,
-     * or a previously-persisted session whose state.behaviorType is already
-     * `'think'`) rejects; a `think` resolution reached purely through the
-     * projectType→behaviorType default falls back to `'agentic'` instead,
-     * since phase 1 supports phasic/agentic and this default was never an
-     * explicit request for the unsupported behavior.
+     * `getBehaviorTypeForProject('app')` resolves to `'think'`
+     * (worker/agents/core/features/types.ts), and the frontend's default
+     * "Agent" mode also sends `behaviorType: 'think'`. The standalone runtime
+     * has no dedicated `think` behavior in phase 1, so every `think` resolution
+     * — whether requested explicitly, restored from persisted state, or reached
+     * through the projectType→behaviorType default — maps to `'agentic'`, its
+     * phase-1 equivalent. (An earlier version threw on explicit `think` and
+     * crashed the agent on boot.)
      */
     private async selectBehavior(initArgs: StandaloneInitArgs): Promise<void> {
         const persistedProjectType = this.state.projectType;
@@ -309,15 +308,134 @@ export class StandaloneAgent implements AgentHost {
         this.behavior.setUserModelConfigs(undefined);
 
         if (!this.state.query) {
-            // Not initialized yet (bare boot / fresh session) — skip the
-            // gitInit + ensureTemplateDetails work codingAgent.ts only runs
-            // once a query is present.
+            // Fresh session. If the boot request carried a query, run the
+            // one-time project initialization codingAgent.ts performs at
+            // creation (select a template, seed the blueprint, commit the
+            // template files) so the first `generate_all` has a template to
+            // build on. With no query it is a bare boot / reconnect before any
+            // generation — nothing to initialize.
+            const requestedQuery = initArgs.query?.trim();
+            if (requestedQuery) {
+                await this.initializeProject(requestedQuery, projectType);
+            }
             return;
         }
 
         this.behavior.migrateStateIfNeeded();
         void this.gitInit();
         void this.behavior.ensureTemplateDetails();
+    }
+
+    /**
+     * Replicates codingAgent.ts's one-time `initialize()` (codingAgent.ts:135)
+     * for the standalone runtime: pick a template for the query, then hand the
+     * selected `templateInfo` to the behavior, which seeds the blueprint,
+     * commits the template files, and kicks off the first sandbox deploy.
+     * Without this, `generateAllFiles()` reaches `ensureTemplateDetails()` with
+     * an empty `templateName` and 404s, so generation can never start.
+     */
+    private async initializeProject(query: string, projectType: ProjectType): Promise<void> {
+        const inferenceContext: InferenceContext = {
+            metadata: this.state.metadata,
+            enableFastSmartCodeFix: false,
+            enableRealtimeCodeFix: false,
+        };
+
+        const templateInfo = await this.resolveTemplateInfo(query, projectType, inferenceContext);
+
+        // git must be initialized before the behavior commits template files.
+        await this.gitInit();
+
+        await this.behavior.initialize({
+            query,
+            hostname: this.state.hostname ?? '',
+            inferenceContext,
+            sandboxSessionId: this.sessionId,
+            templateInfo,
+            onBlueprintChunk: (chunk: string) => {
+                this.broadcast('blueprint_chunk', { chunk });
+            },
+        } as AgentInitArgs);
+    }
+
+    /**
+     * Standalone-safe equivalent of worker/agents/index.ts `getTemplateForQuery`:
+     * resolves a `{ templateDetails, selection }` for the query using the
+     * runtime-agnostic `BaseSandboxService` (the Cloudflare-only
+     * `SandboxSdkClient` path is never imported under Bun). Falls back to the
+     * single available template, then to a from-scratch baseline, so it never
+     * leaves the behavior without a template to build on.
+     */
+    private async resolveTemplateInfo(
+        query: string,
+        projectType: ProjectType,
+        inferenceContext: InferenceContext,
+    ): Promise<{ templateDetails: TemplateDetails; selection: TemplateSelection }> {
+        const scratch = (): { templateDetails: TemplateDetails; selection: TemplateSelection } => ({
+            templateDetails: createScratchTemplateDetails(),
+            selection: {
+                selectedTemplateName: null,
+                reasoning: 'From-scratch mode: no template selected',
+                useCase: 'General',
+                complexity: 'moderate',
+                styleSelection: 'Custom',
+                projectType: 'general',
+            } as TemplateSelection,
+        });
+
+        if (projectType === 'general') {
+            return scratch();
+        }
+
+        const templatesResponse = await BaseSandboxService.listTemplates();
+        const templates = templatesResponse.success ? templatesResponse.templates ?? [] : [];
+        if (templates.length === 0) {
+            this.logger().warn('No templates available; falling back to from-scratch baseline');
+            return scratch();
+        }
+
+        // Single-template catalog: pick it directly, skipping the LLM call.
+        let selectedName: string | null = templates.length === 1 ? templates[0].name : null;
+        let reasoning = 'Only available template';
+
+        if (!selectedName) {
+            try {
+                const aiSelection = await selectTemplate({
+                    env: this.env,
+                    query,
+                    projectType,
+                    availableTemplates: templates,
+                    inferenceContext,
+                });
+                selectedName = aiSelection.selectedTemplateName;
+                reasoning = aiSelection.reasoning;
+            } catch (error) {
+                this.logger().warn('Template selection failed; using first available template', error);
+            }
+        }
+
+        const matched =
+            templates.find((template) => template.name === selectedName) ?? templates[0];
+
+        const detailsResponse = await BaseSandboxService.getTemplateDetails(matched.name);
+        if (!detailsResponse.success || !detailsResponse.templateDetails) {
+            this.logger().warn(
+                `Failed to load details for template '${matched.name}'; falling back to from-scratch baseline`,
+            );
+            return scratch();
+        }
+
+        return {
+            templateDetails: detailsResponse.templateDetails,
+            selection: {
+                selectedTemplateName: matched.name,
+                reasoning,
+                useCase: 'General',
+                complexity: 'moderate',
+                styleSelection: 'Custom',
+                projectType: matched.projectType ?? 'app',
+            } as TemplateSelection,
+        };
     }
 
     private async gitInit(): Promise<void> {
