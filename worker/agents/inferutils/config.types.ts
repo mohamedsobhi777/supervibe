@@ -208,6 +208,36 @@ const MODELS_MASTER = {
             contextSize: 400000, // 400K Context
         }
     },
+    OPENAI_5_6_SOL: {
+        id: 'openai/gpt-5.6-sol',
+        config: {
+            name: 'GPT-5.6 Sol',
+            size: ModelSize.LARGE,
+            provider: 'openai',
+            creditCost: 6,
+            contextSize: 400000, // 400K Context
+        }
+    },
+    OPENAI_5_6_TERRA: {
+        id: 'openai/gpt-5.6-terra',
+        config: {
+            name: 'GPT-5.6 Terra',
+            size: ModelSize.LARGE,
+            provider: 'openai',
+            creditCost: 6,
+            contextSize: 400000, // 400K Context
+        }
+    },
+    OPENAI_5_6_LUNA: {
+        id: 'openai/gpt-5.6-luna',
+        config: {
+            name: 'GPT-5.6 Luna',
+            size: ModelSize.LARGE,
+            provider: 'openai',
+            creditCost: 6,
+            contextSize: 400000, // 400K Context
+        }
+    },
     // Below configs are commented for now, may be supported in the future
     // OPENAI_OSS: {
     //     id: 'openai/gpt-oss-120b',
