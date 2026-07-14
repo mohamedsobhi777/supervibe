@@ -5,6 +5,7 @@ import { DependencyManagement } from '../pure/DependencyManagement';
 import type { StructuredLogger } from '../../../logger';
 import { FileProcessing } from '../pure/FileProcessing';
 import { Plan } from '../../core/types';
+import type { ActiveSkillSnapshot } from 'shared/types/skills';
 
 /** Common fields shared by all generation contexts */
 interface BaseGenerationContext {
@@ -13,6 +14,7 @@ interface BaseGenerationContext {
     readonly templateDetails: TemplateDetails;
     readonly dependencies: Record<string, string>;
     readonly commandsHistory: string[];
+    readonly activeSkills: ActiveSkillSnapshot[];
 }
 
 /** Phase-based generation context with detailed blueprint */
@@ -59,6 +61,7 @@ export const GenerationContext = {
             templateDetails,
             dependencies,
             commandsHistory: state.commandsHistory || [],
+            activeSkills: state.activeSkills ?? [],
         };
 
         return state.behaviorType === 'phasic'

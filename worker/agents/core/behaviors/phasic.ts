@@ -85,6 +85,7 @@ export class PhasicCodingBehavior extends BaseCodingBehavior<PhasicState> implem
             templateDetails: templateInfo?.templateDetails,
             templateMetaInfo: templateInfo?.selection,
             images: initArgs.images,
+            activeSkills: initArgs.activeSkills,
             projectType: this.projectType,
             stream: {
                 chunk_size: 256,
@@ -118,7 +119,8 @@ export class PhasicCodingBehavior extends BaseCodingBehavior<PhasicState> implem
             hostname,
             metadata: inferenceContext.metadata,
             projectType: this.projectType,
-            behaviorType: 'phasic'
+            behaviorType: 'phasic',
+            activeSkills: initArgs.activeSkills ?? []
         };
         this.setState(nextState);
         // Customize template files (package.json, wrangler.jsonc, .bootstrap.js, .gitignore)

@@ -326,7 +326,9 @@ export class UserConversationProcessor extends AgentOperation<GenerationContext,
         });
 
         try {
-            const systemPromptMessages = getSystemPromptWithProjectContext(SYSTEM_PROMPT, context, CodeSerializerType.SIMPLE);
+            // Skills are surfaced as an index only; the conversation agent
+            // loads full content on demand via the read_skill tool.
+            const systemPromptMessages = getSystemPromptWithProjectContext(SYSTEM_PROMPT, context, CodeSerializerType.SIMPLE, true, 'index');
             
             // Create user message with optional images for inference
             const userPromptForInference = buildUserMessageWithContext(userMessage, errors, projectUpdates, true);

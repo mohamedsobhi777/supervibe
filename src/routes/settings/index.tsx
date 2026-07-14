@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Smartphone, Trash2, Lock, Settings } from 'lucide-react';
+import { Smartphone, Trash2, Lock, Settings, BookOpen } from 'lucide-react';
 import { ModelConfigTabs } from '@/components/model-config-tabs';
+import { SkillsSection } from '@/components/skills-section';
 import type {
 	ModelConfigsData,
 	ModelConfigUpdate,
@@ -443,6 +444,21 @@ export default function SettingsPage() {
 								testingConfig={testingConfig}
 								savingConfigs={savingConfigs}
 							/>
+						</CardContent>
+					</Card>
+
+					{/* Custom Agent Skills Section */}
+					<Card id="skills">
+						<CardHeader variant="minimal">
+							<div className="flex items-center gap-3 border-b w-full py-3 text-text-primary">
+								<BookOpen className="h-5 w-5" />
+								<div>
+									<CardTitle>Agent Skills</CardTitle>
+								</div>
+							</div>
+						</CardHeader>
+						<CardContent className="space-y-6 px-6 mt-4">
+							<SkillsSection />
 						</CardContent>
 					</Card>
 

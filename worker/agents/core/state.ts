@@ -4,6 +4,7 @@ import type { PhasicBlueprint, AgenticBlueprint, PhaseConceptType ,
 } from '../schemas';
 import type { InferenceMetadata } from '../inferutils/config.types';
 import { BehaviorType, Plan, ProjectType } from './types';
+import type { ActiveSkillSnapshot } from 'shared/types/skills';
 
 export interface FileState extends FileOutputType {
     lastDiff: string;
@@ -60,6 +61,13 @@ export interface BaseProjectState {
     lastPackageJson?: string;
     pendingUserInputs: string[];
     projectUpdatesAccumulator: string[];
+
+    /**
+     * Snapshot of the user's active custom skills, frozen at session
+     * creation. Optional so states persisted before this field existed
+     * rehydrate cleanly - always read with `?? []`.
+     */
+    activeSkills?: ActiveSkillSnapshot[];
     
     // Deep debug
     lastDeepDebugTranscript: string | null;

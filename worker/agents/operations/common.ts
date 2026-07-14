@@ -18,7 +18,8 @@ export function getSystemPromptWithProjectContext(
     systemPrompt: string,
     context: GenerationContext,
     serializerType: CodeSerializerType = CodeSerializerType.SIMPLE,
-    sharePhases: boolean = true
+    sharePhases: boolean = true,
+    skillsMode: 'full' | 'index' | 'none' = 'full'
 ): Message[] {
     const { query, blueprint, templateDetails, dependencies, allFiles, commandsHistory } = context;
 
@@ -28,7 +29,9 @@ export function getSystemPromptWithProjectContext(
             blueprint,
             templateDetails,
             dependencies,
-        })), 
+            customSkills: skillsMode === 'none' ? undefined : context.activeSkills,
+            customSkillsMode: skillsMode === 'index' ? 'index' : 'full',
+        })),
         createUserMessage(
             USER_PROMPT_FORMATTER.PROJECT_CONTEXT(
                 sharePhases ? GenerationContext.getCompletedPhases(context) : [],

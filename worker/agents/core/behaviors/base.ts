@@ -9,6 +9,7 @@ import {
 import { ExecuteCommandsResponse, PreviewType, RuntimeError, StaticAnalysisResponse, TemplateDetails, TemplateFile } from '../../../services/sandbox/sandboxTypes';
 import { BaseProjectState, AgenticState, FileState } from '../state';
 import { AllIssues, AgentSummary, AgentInitArgs, BehaviorType, DeploymentTarget, ProjectType } from '../types';
+import type { ActiveSkillSnapshot } from 'shared/types/skills';
 import { WebSocketMessageResponses } from '../../constants';
 import { ProjectSetupAssistant } from '../../assistants/projectsetup';
 import { UserConversationProcessor, RenderToolCall } from '../../operations/UserConversationProcessor';
@@ -100,6 +101,11 @@ export abstract class BaseCodingBehavior<TState extends BaseProjectState>
 
     getBehavior(): BehaviorType {
         return this.state.behaviorType;
+    }
+
+    /** Skills snapshotted into state at session creation; never read from the DB. */
+    getActiveSkills(): ActiveSkillSnapshot[] {
+        return this.state.activeSkills ?? [];
     }
 
     protected isAgenticState(state: BaseProjectState): state is AgenticState {
@@ -283,7 +289,8 @@ export abstract class BaseCodingBehavior<TState extends BaseProjectState>
                 query: this.state.query,
                 blueprint: this.state.blueprint,
                 template: this.getTemplateDetails(),
-                inferenceContext: this.getInferenceContext()
+                inferenceContext: this.getInferenceContext(),
+                activeSkills: this.state.activeSkills ?? []
             });
         }
         return this.projectSetupAssistant;

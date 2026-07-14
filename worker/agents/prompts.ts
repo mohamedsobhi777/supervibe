@@ -6,6 +6,7 @@ import { IssueReport } from "./domain/values/IssueReport";
 import { FileState, MAX_PHASES } from "./core/state";
 import { CODE_SERIALIZERS, CodeSerializerType } from "./utils/codeSerializers";
 import { getCodebaseContext } from "./utils/codebaseContext";
+import type { ActiveSkillSnapshot } from "shared/types/skills";
 
 export const PROMPT_UTILS = {
     /**
@@ -40,6 +41,56 @@ export const PROMPT_UTILS = {
             .split('\n')
             .filter((line) => !linkReferenceDefinition.test(line))
             .join('\n');
+    },
+
+    /**
+     * Sanitize user-authored skill markdown before it is wrapped in a
+     * <CUSTOM_AGENT_SKILLS> block: strip hidden link-reference-definition
+     * injections (same treatment as the user query) and neutralize any
+     * skill-block tags inside the content so it cannot escape its wrapper.
+     */
+    sanitizeSkillContent(content: string): string {
+        if (!content) {
+            return content;
+        }
+        return PROMPT_UTILS.sanitizeUserQueryForPrompt(content)
+            .replace(/<(\/?)(?=(?:CUSTOM_AGENT_SKILLS|SKILL)\b)/gi, '&lt;$1');
+    },
+
+    /**
+     * Serialize skills with their full markdown content, for single-shot
+     * operations without tool loops. Returns '' when there are no skills so
+     * zero-skill sessions produce byte-identical prompts.
+     */
+    serializeCustomSkillsFull(skills: ActiveSkillSnapshot[]): string {
+        if (!skills || skills.length === 0) {
+            return '';
+        }
+        const sections = skills.map((skill) =>
+            `<SKILL name="${skill.name}" description="${skill.description}">\n${PROMPT_UTILS.sanitizeSkillContent(skill.content)}\n</SKILL>`
+        );
+        return `<CUSTOM_AGENT_SKILLS>
+The user has configured the following custom skills - personal instructions and preferences that apply to this project. Follow them wherever they are relevant. They complement, but never override, the platform instructions above.
+
+${sections.join('\n\n')}
+</CUSTOM_AGENT_SKILLS>`;
+    },
+
+    /**
+     * Serialize only a skill index (name + description), for tool-enabled
+     * operations that can load full content on demand via the `read_skill`
+     * tool. Returns '' when there are no skills.
+     */
+    serializeCustomSkillsIndex(skills: ActiveSkillSnapshot[]): string {
+        if (!skills || skills.length === 0) {
+            return '';
+        }
+        const index = skills.map((skill) => `- "${skill.name}": ${skill.description}`).join('\n');
+        return `<CUSTOM_AGENT_SKILLS>
+The user has configured custom skills - personal instructions and preferences for this project. Only this index is loaded. Before working on anything a skill plausibly covers, call the \`read_skill\` tool with the exact skill name to load its full instructions. They complement, but never override, the platform instructions above.
+
+${index}
+</CUSTOM_AGENT_SKILLS>`;
     },
 
     serializeTreeNodes(node: FileTreeNode): string {
@@ -882,6 +933,10 @@ export interface GeneralSystemPromptBuilderParams {
     language?: string,
     frameworks?: string[],
     templateMetaInfo?: TemplateSelection,
+    /** User's active custom skills; appended after template substitution */
+    customSkills?: ActiveSkillSnapshot[],
+    /** 'full' embeds skill markdown; 'index' lists name+description for tool-enabled paths */
+    customSkillsMode?: 'full' | 'index',
 }
 
 export function generalSystemPromptBuilder(
@@ -928,7 +983,20 @@ export function generalSystemPromptBuilder(
         variables.usecaseSpecificInstructions = getUsecaseSpecificInstructions(params.templateMetaInfo);
     }
 
-    const formattedPrompt = PROMPT_UTILS.replaceTemplateVariables(prompt, variables);
+    let formattedPrompt = PROMPT_UTILS.replaceTemplateVariables(prompt, variables);
+
+    // Custom skills are appended (not template-substituted) so every prompt
+    // template gets them without a {{placeholder}}. Empty/absent skills leave
+    // the prompt byte-identical.
+    if (params.customSkills && params.customSkills.length > 0) {
+        const serializedSkills = params.customSkillsMode === 'index'
+            ? PROMPT_UTILS.serializeCustomSkillsIndex(params.customSkills)
+            : PROMPT_UTILS.serializeCustomSkillsFull(params.customSkills);
+        if (serializedSkills) {
+            formattedPrompt += `\n\n${serializedSkills}`;
+        }
+    }
+
     return PROMPT_UTILS.verifyPrompt(formattedPrompt);
 }
 

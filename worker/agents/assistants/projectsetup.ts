@@ -7,6 +7,7 @@ import { executeInference, } from "../inferutils/infer";
 import Assistant from "./assistant";
 import { AIModels, InferenceContext } from "../inferutils/config.types";
 import { extractCommands } from "../utils/common";
+import type { ActiveSkillSnapshot } from "shared/types/skills";
 
 interface GenerateSetupCommandsArgs {
     env: Env;
@@ -15,6 +16,7 @@ interface GenerateSetupCommandsArgs {
     blueprint: Blueprint;
     template: TemplateDetails;
     inferenceContext: InferenceContext;
+    activeSkills?: ActiveSkillSnapshot[];
 }
 
 const SYSTEM_PROMPT = `You are an Expert DevOps Engineer at Cloudflare specializing in project setup and dependency management. Your task is to analyze project requirements and generate precise installation commands for missing dependencies.`
@@ -95,6 +97,7 @@ export class ProjectSetupAssistant extends Assistant<Env> {
         query,
         blueprint,
         template,
+        activeSkills,
     }: GenerateSetupCommandsArgs) {
         const systemPrompt = createSystemMessage(SYSTEM_PROMPT);
         super(env, inferenceContext, systemPrompt);
@@ -103,6 +106,8 @@ export class ProjectSetupAssistant extends Assistant<Env> {
             blueprint,
             templateDetails: template,
             dependencies: template.deps,
+            customSkills: activeSkills,
+            customSkillsMode: 'full',
         }))]);
         this.query = query;
         this.logger = createObjectLogger(this, 'ProjectSetupAssistant')

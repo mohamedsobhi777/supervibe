@@ -32,6 +32,7 @@ import { createExecCommandsTool } from '../tools/toolkit/exec-commands';
 import { createWaitTool } from '../tools/toolkit/wait';
 import { createGitTool } from '../tools/toolkit/git';
 import { createGenerateImagesTool } from '../tools/toolkit/generate-images';
+import { createReadSkillTool } from '../tools/toolkit/read-skill';
 
 export interface AgenticProjectBuilderInputs {
     query: string;
@@ -219,6 +220,13 @@ export class AgenticProjectBuilderOperation extends AgentOperationWithTools<
             systemPrompt += `\n\n# Conversation History\nYou are being provided with the full conversation history from your previous interactions. Review it to understand context and avoid repeating work.`;
         }
 
+        // Skills are surfaced as an index only; the builder loads full
+        // content on demand via the read_skill tool.
+        const skillsIndex = PROMPT_UTILS.serializeCustomSkillsIndex(options.context.activeSkills);
+        if (skillsIndex) {
+            systemPrompt += `\n\n${skillsIndex}`;
+        }
+
         const userPrompt = getUserPrompt(
             inputs.query,
             inputs.projectName,
@@ -266,6 +274,11 @@ export class AgenticProjectBuilderOperation extends AgentOperationWithTools<
 
         if (!inputs.selectedTemplate || inputs.selectedTemplate === 'scratch') {
             rawTools.push(createInitSuitableTemplateTool(session.agent, logger));
+        }
+
+        // Custom skill lookup, only registered when the session has skills
+        if (session.agent.getActiveSkills().length > 0) {
+            rawTools.push(createReadSkillTool(session.agent, logger));
         }
 
         rawTools = withRenderer(rawTools, toolRenderer, onToolComplete);

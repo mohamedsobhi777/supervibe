@@ -4,6 +4,7 @@ import { setupAnalyticsRoutes } from './analyticsRoutes';
 import { setupSecretsRoutes } from './secretsRoutes';
 import { setupModelConfigRoutes } from './modelConfigRoutes';
 import { setupModelProviderRoutes } from './modelProviderRoutes';
+import { setupSkillsRoutes } from './skillsRoutes';
 import { setupGitHubExporterRoutes } from './githubExporterRoutes';
 import { setupCodegenRoutes } from './codegenRoutes';
 import { setupScreenshotRoutes } from './imagesRoutes';
@@ -77,6 +78,9 @@ export function setupRoutes(app: Hono<AppEnv>): void {
 
     // Model provider routes
     setupModelProviderRoutes(app);
+
+    // Custom agent skill routes
+    setupSkillsRoutes(app);
 
     // GitHub Exporter routes
     setupGitHubExporterRoutes(app);

@@ -212,6 +212,34 @@ export const userModelProviders = pgTable('user_model_providers', {
 ]);
 
 // ========================================
+// CUSTOM AGENT SKILLS
+// ========================================
+
+/**
+ * Agent Skills table - user-authored markdown instruction files that are
+ * injected into the code-generation agent's prompts. Active skills are
+ * snapshotted into `agent_sessions.init_args` at session creation, so the
+ * sandboxed runtime never reads this table.
+ */
+export const agentSkills = pgTable('agent_skills', {
+    id: text('id').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+
+    // Skill Details
+    name: text('name').notNull(), // User-friendly name (e.g., "Tailwind conventions")
+    description: text('description').notNull(), // One-line summary shown in skill indexes
+    content: text('content').notNull(), // Full markdown instructions
+
+    // Status and Metadata
+    isActive: boolean('is_active').default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+    uniqueIndex('agent_skills_user_name_idx').on(table.userId, table.name),
+    index('agent_skills_user_idx').on(table.userId),
+]);
+
+// ========================================
 // USER SECRETS VAULT
 // ========================================
 
@@ -353,6 +381,9 @@ export type NewUserModelConfig = typeof userModelConfigs.$inferInsert;
 
 export type UserModelProvider = typeof userModelProviders.$inferSelect;
 export type NewUserModelProvider = typeof userModelProviders.$inferInsert;
+
+export type AgentSkill = typeof agentSkills.$inferSelect;
+export type NewAgentSkill = typeof agentSkills.$inferInsert;
 
 export type UserSecret = typeof userSecrets.$inferSelect;
 export type NewUserSecret = typeof userSecrets.$inferInsert;

@@ -112,6 +112,26 @@ export type {
   TestProviderRequest
 } from 'worker/api/controllers/modelProviders/types';
 
+// Custom Agent Skills API Types
+export type {
+  SkillsListData,
+  SkillData,
+  SkillCreateData,
+  SkillUpdateData,
+  SkillDeleteData,
+  CreateSkillRequest,
+  UpdateSkillRequest
+} from 'worker/api/controllers/skills/types';
+export type { ActiveSkillSnapshot } from '../shared/types/skills';
+export {
+  SKILL_NAME_REGEX,
+  MAX_SKILL_NAME_LENGTH,
+  MAX_SKILL_DESCRIPTION_LENGTH,
+  MAX_SKILL_CONTENT_LENGTH,
+  MAX_COMBINED_ACTIVE_SKILLS_LENGTH,
+  MAX_SKILLS_PER_USER
+} from '../shared/constants/skills';
+
 // Frontend model config update interface that matches backend schema
 export interface ModelConfigUpdate {
   modelName?: string | null;
@@ -158,11 +178,12 @@ export type {
 } from 'worker/api/websocketTypes';
 
 // Database/Schema Types commonly used in frontend
-export type { 
+export type {
   App,
   User,
   UserModelConfig,
-  UserModelProvider
+  UserModelProvider,
+  AgentSkill
 } from 'worker/database/schema';
 
 export type {
@@ -227,7 +248,8 @@ export type {
 export type { RateLimitErrorResponse } from 'worker/api/responses';
 export { RateLimitExceededError, SecurityError, SecurityErrorType } from '../shared/types/errors.js';
 
-export type { AIModels } from 'worker/agents/inferutils/config.types';
+export type { AIModels, AIModelConfig } from 'worker/agents/inferutils/config.types';
+export { AI_MODEL_CONFIG } from 'worker/agents/inferutils/config.types';
 // Model selection types
 export type ModelSelectionMode = 'platform' | 'byok' | 'custom';
 

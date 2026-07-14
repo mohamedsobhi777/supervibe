@@ -9,9 +9,12 @@ import { GitVersionControl } from "worker/agents/git/git";
 import { OperationOptions } from "worker/agents/operations/common";
 import { TemplateFile } from "worker/services/sandbox/sandboxTypes";
 import type { BrowserConsoleCaptureResult } from "worker/services/browser-capture/types";
+import type { ActiveSkillSnapshot } from "shared/types/skills";
 
 export interface ICodingAgent {
     getBehavior(): BehaviorType;
+
+    getActiveSkills(): ActiveSkillSnapshot[];
 
     isMVPGenerated(): boolean;
     

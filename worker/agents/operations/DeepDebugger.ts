@@ -137,10 +137,15 @@ export class DeepDebuggerOperation extends AgentOperationWithTools<
 
     protected async buildMessages(
         inputs: DeepDebuggerInputs,
-        _options: OperationOptions<GenerationContext>,
+        options: OperationOptions<GenerationContext>,
         session: DeepDebuggerSession
     ): Promise<Message[]> {
-        const system = createSystemMessage(SYSTEM_PROMPT);
+        // Skills are surfaced as an index only; the debugger loads full
+        // content on demand via the read_skill tool.
+        const skillsIndex = PROMPT_UTILS.serializeCustomSkillsIndex(options.context.activeSkills);
+        const system = createSystemMessage(
+            skillsIndex ? `${SYSTEM_PROMPT}\n\n${skillsIndex}` : SYSTEM_PROMPT
+        );
 
         const runtimeErrorsText = inputs.runtimeErrors
             ? PROMPT_UTILS.serializeErrors(inputs.runtimeErrors)

@@ -92,7 +92,8 @@ export class AgenticCodingBehavior extends BaseCodingBehavior<AgenticState> impl
             hostname,
             metadata: inferenceContext.metadata,
             projectType: this.projectType,
-            behaviorType: 'agentic'
+            behaviorType: 'agentic',
+            activeSkills: initArgs.activeSkills ?? []
         });
         
         if (templateInfo && templateInfo.templateDetails.name !== 'scratch') {

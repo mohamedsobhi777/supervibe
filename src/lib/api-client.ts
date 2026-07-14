@@ -38,6 +38,12 @@ import type{
 	CreateProviderRequest,
 	UpdateProviderRequest,
 	TestProviderRequest,
+	SkillsListData,
+	SkillCreateData,
+	SkillUpdateData,
+	SkillDeleteData,
+	CreateSkillRequest,
+	UpdateSkillRequest,
 	SecretTemplatesData,
 	AgentBootstrapResponse,
 	App,
@@ -892,6 +898,59 @@ class ApiClient {
 			method: 'POST',
 			body: data,
 		});
+	}
+
+	// ===============================
+	// Skills API Methods
+	// ===============================
+
+	/**
+	 * Get all custom agent skills
+	 */
+	async getSkills(): Promise<ApiResponse<SkillsListData>> {
+		return this.request<SkillsListData>('/api/user/skills');
+	}
+
+	/**
+	 * Create a new custom agent skill
+	 */
+	async createSkill(
+		data: CreateSkillRequest,
+	): Promise<ApiResponse<SkillCreateData>> {
+		return this.request<SkillCreateData>('/api/user/skills', {
+			method: 'POST',
+			body: data,
+		});
+	}
+
+	/**
+	 * Update an existing custom agent skill
+	 */
+	async updateSkill(
+		skillId: string,
+		data: UpdateSkillRequest,
+	): Promise<ApiResponse<SkillUpdateData>> {
+		return this.request<SkillUpdateData>(
+			`/api/user/skills/${skillId}`,
+			{
+				method: 'PUT',
+				body: data,
+			},
+		);
+	}
+
+	/**
+	 * Delete a custom agent skill
+	 */
+	async deleteSkill(
+		skillId: string,
+	): Promise<ApiResponse<SkillDeleteData>> {
+		return this.request<SkillDeleteData>(
+			`/api/user/skills/${skillId}`,
+			{
+				method: 'DELETE',
+			},
+		);
 	}
 
 	// ===============================

@@ -19,6 +19,7 @@ import { createGetRuntimeErrorsTool } from './toolkit/get-runtime-errors';
 import { createWaitForGenerationTool } from './toolkit/wait-for-generation';
 import { createWaitForDebugTool } from './toolkit/wait-for-debug';
 import { createGitTool } from './toolkit/git';
+import { createReadSkillTool } from './toolkit/read-skill';
 import { ICodingAgent } from '../services/interfaces/ICodingAgent';
 import { Message } from '../inferutils/common';
 import { ChatCompletionMessageFunctionToolCall } from 'openai/resources';
@@ -63,6 +64,8 @@ export function buildTools(
         createGitTool(agent, logger, { excludeCommands: ['reset'] }),
         // Deep autonomous debugging assistant tool
         createDeepDebuggerTool(agent, logger, toolRenderer, streamCb),
+        // Custom skill lookup, only registered when the session has skills
+        ...(agent.getActiveSkills().length > 0 ? [createReadSkillTool(agent, logger)] : []),
     ];
 }
 
@@ -78,6 +81,8 @@ export function buildDebugTools(session: DeepDebuggerSession, logger: Structured
         createDeployPreviewTool(session.agent, logger),
         createWaitTool(logger),
         createGitTool(session.agent, logger),
+        // Custom skill lookup, only registered when the session has skills
+        ...(session.agent.getActiveSkills().length > 0 ? [createReadSkillTool(session.agent, logger)] : []),
     ];
     return withRenderer(tools, toolRenderer);
 }

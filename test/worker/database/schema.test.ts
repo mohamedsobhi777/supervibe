@@ -157,6 +157,24 @@ describe('schema (pg-core)', () => {
         });
     });
 
+    describe('agentSkills', () => {
+        it('maps the agent_skills columns to their snake_case Postgres names and types', () => {
+            expect(getTableConfig(schema.agentSkills).name).toBe('agent_skills');
+            expect(findColumn(schema.agentSkills, 'user_id').getSQLType()).toBe('uuid');
+            expect(findColumn(schema.agentSkills, 'name').notNull).toBe(true);
+            expect(findColumn(schema.agentSkills, 'description').notNull).toBe(true);
+            expect(findColumn(schema.agentSkills, 'content').notNull).toBe(true);
+            expect(findColumn(schema.agentSkills, 'is_active').getSQLType()).toBe('boolean');
+            expect(findColumn(schema.agentSkills, 'created_at').getSQLType()).toBe('timestamp with time zone');
+        });
+
+        it('is unique on (user_id, name) and indexes user_id', () => {
+            const unique = getTableConfig(schema.agentSkills).indexes.find((index) => index.config.unique);
+            expect(unique?.config.name).toBe('agent_skills_user_name_idx');
+            expect(indexNames(schema.agentSkills)).toContain('agent_skills_user_idx');
+        });
+    });
+
     describe('agentSessions', () => {
         it('maps the Phase-1 agent_sessions columns to their snake_case Postgres names and types', () => {
             expect(getTableConfig(schema.agentSessions).name).toBe('agent_sessions');

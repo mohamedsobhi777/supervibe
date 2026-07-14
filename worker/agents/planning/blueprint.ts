@@ -11,6 +11,7 @@ import { imagesToBase64 } from 'worker/utils/images';
 import { ProcessedImageAttachment } from 'worker/types/image-attachment';
 import { getTemplateImportantFiles } from 'worker/services/sandbox/utils';
 import { ProjectType } from '../core/types';
+import type { ActiveSkillSnapshot } from 'shared/types/skills';
 
 const logger = createLogger('Blueprint');
 
@@ -333,6 +334,7 @@ interface BaseBlueprintGenerationArgs {
     frameworks: string[];
     projectType: ProjectType;
     images?: ProcessedImageAttachment[];
+    activeSkills?: ActiveSkillSnapshot[];
     stream?: {
         chunk_size: number;
         onChunk: (chunk: string) => void;
@@ -396,6 +398,8 @@ export async function generateBlueprint(
             blueprint: undefined,
             language,
             dependencies: templateDetails?.deps,
+            customSkills: args.activeSkills,
+            customSkillsMode: 'full',
         }));
 
         const userMessage = images && images.length > 0
