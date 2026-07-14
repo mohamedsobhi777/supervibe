@@ -1,0 +1,83 @@
+:root {
+  --bg: oklch(98% 0.01 260);
+  --surface: oklch(100% 0 0);
+  --text: oklch(22% 0.03 265);
+  --muted: oklch(52% 0.03 265);
+  --accent: oklch(60% 0.19 264);
+  --border: oklch(90% 0.02 265);
+  --shadow: 0 20px 50px -24px oklch(40% 0.1 265 / 0.45);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(70% 55% at 50% -10%, oklch(92% 0.06 264 / 0.7), transparent 60%),
+    var(--bg);
+  min-height: 100dvh;
+}
+
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
+.hero {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+  padding: clamp(2rem, 1.5rem + 3vw, 4rem);
+  max-width: 42rem;
+  text-align: center;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: oklch(60% 0.19 264 / 0.1);
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  margin-bottom: 1.25rem;
+}
+
+h1 {
+  font-size: clamp(2.2rem, 1.2rem + 4vw, 3.5rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0 0 1rem;
+}
+
+.accent { color: var(--accent); }
+
+.lede {
+  color: var(--muted);
+  font-size: clamp(1rem, 0.95rem + 0.3vw, 1.15rem);
+  line-height: 1.6;
+  margin: 0 auto 2rem;
+  max-width: 34rem;
+}
+
+.actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+
+.btn {
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 0.7rem 1.3rem;
+  border-radius: 12px;
+  transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+.btn:hover { transform: translateY(-1px); }
+.btn.primary { background: var(--accent); color: white; box-shadow: 0 10px 24px -12px var(--accent); }
+.btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.btn.ghost:hover { border-color: var(--accent); color: var(--accent); }

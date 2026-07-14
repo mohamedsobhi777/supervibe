@@ -1,0 +1,14 @@
+[
+  {
+    "name": "react-vite",
+    "language": "typescript",
+    "frameworks": ["react", "vite", "typescript"],
+    "projectType": "app",
+    "renderMode": "sandbox",
+    "disabled": false,
+    "description": {
+      "selection": "Use this template for single-page React web applications: dashboards, interactive tools, forms, landing pages, and client-side UIs. It has no server-side rendering and no backend router, so pick it when the app is primarily a rich frontend that can call external APIs directly from the browser.",
+      "usage": "React 18 + Vite + TypeScript single-page app. The dev server runs on port 8080. Build the UI in src/App.tsx and add components/hooks under src/. Global styles live in src/index.css. There is no backend in this template; call third-party APIs from the client, or add a lightweight one later. Do not edit vite.config.ts or tsconfig.json."
+    }
+  }
+]

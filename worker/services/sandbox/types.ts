@@ -28,3 +28,15 @@ export interface WranglerConfigValidationResult {
     unresolvedPlaceholders: string[];
     errors?: string[];
 }
+
+export interface InstanceMetadata {
+    projectName: string;
+    startTime: string;
+    webhookUrl?: string;
+    previewURL?: string;
+    tunnelURL?: string;
+    processId?: string;
+    allocatedPort?: number;
+    donttouch_files: string[];
+    redacted_files: string[];
+}
