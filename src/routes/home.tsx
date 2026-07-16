@@ -19,8 +19,11 @@ import { toast } from 'sonner';
 import { useLimitsContext } from '@/contexts/limits-context';
 import { checkCanSendPrompt } from '@/utils/usage-limit-checker';
 import { PromptBox } from '@/components/prompt-box';
+import { usePageMeta } from '@/hooks/use-page-meta';
 
 export default function Home() {
+	usePageMeta();
+
 	const navigate = useNavigate();
 	const { requireAuth } = useAuthGuard();
 	const [projectMode, setProjectMode] = useState<ProjectType>('app');

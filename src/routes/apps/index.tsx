@@ -7,8 +7,14 @@ import { AppFiltersForm } from '@/components/shared/AppFiltersForm';
 import { AppSortTabs } from '@/components/shared/AppSortTabs';
 import { VisibilityFilter } from '@/components/shared/VisibilityFilter';
 import type { AppSortOption } from '@/api-types';
+import { usePageMeta } from '@/hooks/use-page-meta';
 
 export default function AppsPage() {
+	usePageMeta({
+		title: 'My Apps',
+		description: 'Browse, manage, and revisit every app you\'ve built with SuperVibe.',
+	});
+
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
 

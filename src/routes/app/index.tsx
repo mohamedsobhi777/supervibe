@@ -47,6 +47,7 @@ import { GitCloneModal } from '@/components/shared/GitCloneModal';
 import { GitCloneCommand, GitClonePrivatePrompt } from '@/components/shared/GitCloneInline';
 import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { PreviewIframe } from '../chat/components/preview-iframe';
+import { usePageMeta } from '@/hooks/use-page-meta';
 
 // Use proper types from API types
 type AppDetails = AppDetailsData;
@@ -88,6 +89,11 @@ export default function AppView() {
 	const [app, setApp] = useState<AppDetails | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
+
+	usePageMeta({
+		title: app?.title,
+		description: app?.description || undefined,
+	});
 	const [isFavorited, setIsFavorited] = useState(false);
 	const [isStarred, setIsStarred] = useState(false);
 	const { copied: urlCopied, copy: copyUrl } = useCopyToClipboard();

@@ -25,10 +25,16 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { usePageMeta } from '@/hooks/use-page-meta';
 // import { SecretsManager } from '@/components/vault';
 // import { ByokApiKeysModal } from '@/components/byok-api-keys-modal';
 
 export default function SettingsPage() {
+	usePageMeta({
+		title: 'Settings',
+		description: 'Manage your SuperVibe account, model configuration, and connected sessions.',
+	});
+
 	const { user } = useAuth();
 	// Active sessions state
 	const [activeSessions, setActiveSessions] = useState<

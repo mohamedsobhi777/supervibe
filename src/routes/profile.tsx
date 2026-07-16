@@ -30,8 +30,14 @@ import { toast } from 'sonner';
 import { useUserStats, useUserActivity } from '@/hooks/use-stats';
 import { apiClient } from '@/lib/api-client';
 import { useApps } from '@/hooks/use-apps';
+import { usePageMeta } from '@/hooks/use-page-meta';
 
 export default function Profile() {
+  usePageMeta({
+    title: 'Profile',
+    description: 'View your SuperVibe profile, activity, and the apps you\'ve built.',
+  });
+
   const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
   const [isEditing, setIsEditing] = React.useState(false);

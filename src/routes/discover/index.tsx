@@ -5,8 +5,14 @@ import { AppListContainer } from '@/components/shared/AppListContainer';
 import { AppFiltersForm } from '@/components/shared/AppFiltersForm';
 import { AppSortTabs } from '@/components/shared/AppSortTabs';
 import type { AppSortOption } from '@/api-types';
+import { usePageMeta } from '@/hooks/use-page-meta';
 
 export default function DiscoverPage() {
+	usePageMeta({
+		title: 'Discover',
+		description: 'Explore full-stack apps built and shared by the SuperVibe community.',
+	});
+
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
 

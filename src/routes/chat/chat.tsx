@@ -38,6 +38,7 @@ import { useVault } from '@/hooks/use-vault';
 import { VaultUnlockModal } from '@/components/vault';
 import { useLimitsContext } from '@/contexts/limits-context';
 import { checkCanSendPrompt, getBackendLimitDialog } from '@/utils/usage-limit-checker';
+import { usePageMeta } from '@/hooks/use-page-meta';
 
 const isPhasicBlueprint = (blueprint?: BlueprintType | null): blueprint is PhasicBlueprint =>
 	!!blueprint && 'implementationRoadmap' in blueprint;
@@ -95,6 +96,11 @@ export default function Chat() {
 	// If we have an existing app, use its data
 	const displayQuery = app ? app.originalPrompt || app.title : userQuery || '';
 	const appTitle = app?.title;
+
+	usePageMeta({
+		title: appTitle || 'New App',
+		description: app?.description || undefined,
+	});
 
 	// Manual refresh trigger for preview
 	const [manualRefreshTrigger, setManualRefreshTrigger] = useState(0);
